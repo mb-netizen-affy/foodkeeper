@@ -1,5 +1,5 @@
 {
-  "name": "app_resto",
+  "name": "foodkeeper",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.91.1",
+    "lucide-react": "~1.50.0",
+    "motion": "^12.43.0",
     "next": "^16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "stripe": "^20.3.0"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

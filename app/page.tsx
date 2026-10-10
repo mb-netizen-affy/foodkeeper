@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "./lib/supabaseClient";
+import { useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { SplashScreen } from "@/components/AppChrome";
 
 export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    const go = async () => {
-      const { data } = await supabase.auth.getUser();
-      router.replace(data.user ? "/restaurants" : "/login");
-    };
-    go();
+    supabase.auth.getUser().then(({ data }) => router.replace(data.user ? "/restaurants" : "/login"));
   }, [router]);
 
-  return <p className="p-6 text-sm text-gray-500">Chargement…</p>;
+  return <SplashScreen />;
 }

@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FoodKeeper 🍴
 
-## Getting Started
+Ton carnet de restaurants : notes sur 20, tags, visites (addition, couverts), statistiques et profil public partageable.
+Même ADN visuel que HomeKeeper (« néo-brutalisme doux », Bricolage Grotesque), en crème / chocolat / paprika.
 
-First, run the development server:
+## Lancer en local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Puis ouvre http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variables d'environnement (`.env.local`, jamais sur GitHub)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+GOOGLE_PLACES_API_KEY=...
+```
 
-## Learn More
+## Organisation du code
 
-To learn more about Next.js, take a look at the following resources:
+```
+app/
+  (auth)/login        Connexion / inscription
+  (app)/restaurants   Mes restos (liste + fiche d'un resto)
+  (app)/search        Ajouter un resto ou une visite (Google Places)
+  (app)/stats         Mes statistiques
+  (app)/community     Recherche de carnets publics
+  (app)/profile       Mon compte
+  p/[id]              Profil public partageable
+  api/places          Appels Google Places (côté serveur, clé cachée)
+components/
+  ui/                 Briques réutilisables (Sheet, Toast, Stepper, cartes…)
+  restaurant/         Carte resto, fiche, formulaires
+  stats/              Blocs de stats (partagés Stats + profil public)
+lib/
+  auth.tsx            Connexion vérifiée une seule fois pour toute l'app
+  data.ts             Lecture / écriture Supabase
+  stats.ts            Calcul des statistiques
+  badge.ts            Badge « gourmet » (une seule règle)
+  format.ts, tags.ts, places.ts, types.ts
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Couleurs (app/globals.css)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Rôle       | Couleur   | Classe Tailwind |
+|------------|-----------|-----------------|
+| Fond       | `#F3ECE1` | `bg-cream`      |
+| Cartes     | `#FFFBF5` | `bg-paper`      |
+| Surfaces   | `#E6D9C6` | `bg-sand`       |
+| Principal  | `#4A2C1A` | `text-choco`    |
+| Accent     | `#E2651F` | `bg-paprika`    |

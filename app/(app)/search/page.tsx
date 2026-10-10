@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../../lib/supabaseClient";
-import { AVAILABLE_TAGS } from "../../components/Tags";
+// Ajouter un restaurant (via Google Places) ou une visite à un resto déjà connu.
+
+import { Loader, MapPin, Search, Star, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useVisitState, VisitFields } from "@/components/restaurant/Forms";
+import { PageHeader } from "@/components/ui/Blocks";
+import { Stepper, TagPicker } from "@/components/ui/Inputs";
+import { useToast } from "@/components/ui/Toast";
+import { useAuth } from "@/lib/auth";
+import { addVisit } from "@/lib/data";
+import { norm } from "@/lib/format";
+import { cityFromAddress, countryFromAddress, mapsUrl } from "@/lib/places";
+import { supabase } from "@/lib/supabaseClient";
 
 type Prediction = { placeId: string; text: string };
 
@@ -18,586 +30,308 @@ type PlaceDetails = {
   photoName: string | null;
 };
 
-function extractCityFromAddress(address: string): string {
-  const parts = address.split(",").map((p) => p.trim());
-  const candidate = parts.length >= 2 ? parts[parts.length - 2] : "";
-  return candidate.replace(/^\d{4,5}\s+/, "").trim();
-}
-
-function extractCountryFromAddress(address: string): string {
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : "";
-}
-
-function clampRating(v: number) {
-  return Math.min(20, Math.max(0, v));
-}
-
-function normalize(s: string) {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function highlightMatch(text: string, q: string) {
-  const raw = q.trim();
-  if (!raw) return { before: text, match: "", after: "" };
-
-  const lowerText = text.toLowerCase();
-  const lowerQ = raw.toLowerCase();
-
-  const idx = lowerText.indexOf(lowerQ);
-  if (idx === -1) return { before: text, match: "", after: "" };
-
-  return {
-    before: text.slice(0, idx),
-    match: text.slice(idx, idx + raw.length),
-    after: text.slice(idx + raw.length),
-  };
-}
-
-function nowISOStable() {
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  return d.toISOString();
-}
-
 export default function SearchPage() {
-  const [userId, setUserId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const router = useRouter();
+  const toast = useToast();
 
   const [query, setQuery] = useState("");
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(false);
-
   const [selected, setSelected] = useState<PlaceDetails | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const [myRating, setMyRating] = useState<string>("");
-  const [myTags, setMyTags] = useState<string[]>([]);
-  const [myPrice, setMyPrice] = useState<string>("");
-
-  // ✅ NOUVEAU : couverts obligatoires
-  const [myCovers, setMyCovers] = useState<string>("2");
-
-  const [alreadyAdded, setAlreadyAdded] = useState(false);
-  const [existingRestaurantId, setExistingRestaurantId] = useState<string | null>(null);
+  const [existingId, setExistingId] = useState<string | null>(null);
 
   const autoCache = useRef(new Map<string, Prediction[]>());
   const detailsCache = useRef(new Map<string, PlaceDetails>());
+  const reqId = useRef(0);
 
-  const autoReqId = useRef(0);
-  const detailsReqId = useRef(0);
-
-  const lastSelectedQuery = useRef<string>("");
-
+  // Autocomplétion (avec délai pour ne pas appeler Google à chaque lettre)
   useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
-        window.location.href = "/login";
-        return;
-      }
-      setUserId(data.user.id);
-    };
-    init();
-  }, []);
-
-  const toggleMyTag = (tag: string) => {
-    setMyTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
-  };
-
-  const resetSelection = () => {
-    setSelected(null);
-    setMyRating("");
-    setMyTags([]);
-    setMyPrice("");
-    setMyCovers("2");
-    setAlreadyAdded(false);
-    setExistingRestaurantId(null);
-  };
-
-  const checkExisting = async (placeId: string) => {
-    if (!userId) return;
-
-    const { data: existing, error } = await supabase
-      .from("restaurants")
-      .select("id")
-      .eq("place_id", placeId)
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Erreur check existing:", error.message);
-      return;
-    }
-
-    if (existing?.id) {
-      setAlreadyAdded(true);
-      setExistingRestaurantId(existing.id);
-    }
-  };
-
-  useEffect(() => {
+    if (selected) return;
     const raw = query.trim();
-    const nQ = normalize(raw);
-
-    setMsg(null);
-
-    if (selected && normalize(lastSelectedQuery.current) !== nQ) {
-      resetSelection();
-    }
-
-    if (!nQ) {
+    const key = norm(raw);
+    if (key.length < 2) {
       setPredictions([]);
-      resetSelection();
       return;
     }
-
-    const cached = autoCache.current.get(nQ);
+    const cached = autoCache.current.get(key);
     if (cached) {
       setPredictions(cached);
       return;
     }
-
     const t = window.setTimeout(async () => {
-      const req = ++autoReqId.current;
+      const req = ++reqId.current;
       setLoading(true);
-
       try {
         const res = await fetch("/api/places/autocomplete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: raw }),
         });
-
         const data = await res.json();
-        if (req !== autoReqId.current) return;
-
-        const preds = (data.predictions ?? []) as Prediction[];
-        autoCache.current.set(nQ, preds);
+        if (req !== reqId.current) return;
+        const preds = ((data.predictions ?? []) as Prediction[]).filter((p) => p.placeId && p.text);
+        autoCache.current.set(key, preds);
         setPredictions(preds);
       } catch {
-        if (req !== autoReqId.current) return;
-        setMsg("❌ Erreur réseau (autocomplete).");
+        if (req === reqId.current) toast("Erreur réseau pendant la recherche", "error");
       } finally {
-        if (req === autoReqId.current) setLoading(false);
+        if (req === reqId.current) setLoading(false);
       }
     }, 250);
-
     return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, selected, toast]);
 
-  const selectPlace = async (placeId: string) => {
-    const req = ++detailsReqId.current;
-
-    setLoading(true);
-    setMsg(null);
+  const clear = () => {
+    setQuery("");
     setPredictions([]);
-    resetSelection();
+    setSelected(null);
+    setExistingId(null);
+  };
 
-    const cached = detailsCache.current.get(placeId);
-    if (cached) {
-      setSelected(cached);
-      lastSelectedQuery.current = query;
-      setLoading(false);
-      await checkExisting(cached.placeId);
-      return;
-    }
-
+  const selectPlace = async (p: Prediction) => {
+    const req = ++reqId.current;
+    setPredictions([]);
+    setLoading(true);
     try {
-      const res = await fetch("/api/places/details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placeId }),
-      });
-
-      const data = (await res.json()) as PlaceDetails;
-      if (req !== detailsReqId.current) return;
-
-      if (!res.ok) {
-        setMsg("❌ Erreur Google Places.");
-        setLoading(false);
-        return;
+      let details = detailsCache.current.get(p.placeId);
+      if (!details) {
+        const res = await fetch("/api/places/details", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ placeId: p.placeId }),
+        });
+        if (!res.ok) throw new Error("details");
+        details = (await res.json()) as PlaceDetails;
+        detailsCache.current.set(p.placeId, details);
       }
+      if (req !== reqId.current) return;
 
-      detailsCache.current.set(placeId, data);
-      setSelected(data);
-      lastSelectedQuery.current = query;
-      setLoading(false);
+      const { data: existing } = await supabase
+        .from("restaurants")
+        .select("id")
+        .eq("place_id", details.placeId)
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      await checkExisting(data.placeId);
+      setExistingId(existing?.id ?? null);
+      setSelected(details);
+      setQuery(details.name);
     } catch {
-      if (req !== detailsReqId.current) return;
-      setMsg("❌ Erreur réseau (details).");
-      setLoading(false);
+      if (req === reqId.current) toast("Impossible de charger ce lieu", "error");
+    } finally {
+      if (req === reqId.current) setLoading(false);
     }
   };
-
-  const validateVisitInputs = () => {
-    const p = Number(myPrice);
-    if (!myPrice.trim() || !Number.isFinite(p) || p < 0) {
-      setMsg("❌ Entre un prix valide.");
-      return null;
-    }
-
-    const c = Number(myCovers);
-    if (!myCovers.trim() || !Number.isFinite(c) || !Number.isInteger(c) || c < 1) {
-      setMsg("❌ Entre un nombre de couverts valide (minimum 1).");
-      return null;
-    }
-
-    return { price: p, covers: c };
-  };
-
-  const addVisitOnly = async (restaurantId: string) => {
-    if (!userId) return;
-
-    const v = validateVisitInputs();
-    if (!v) return;
-
-    const { error } = await supabase.from("restaurant_visits").insert([
-      {
-        user_id: userId,
-        restaurant_id: restaurantId,
-        price_eur: v.price,
-        covers: v.covers,
-        visited_at: nowISOStable(),
-      },
-    ]);
-
-    if (error) {
-      console.error(error.message);
-      setMsg("❌ Erreur ajout visite.");
-      return;
-    }
-
-    setMsg("🍴 Visite ajoutée !");
-    setQuery("");
-    resetSelection();
-    window.dispatchEvent(new Event("visits:changed"));
-  };
-
-  const addNewRestaurantWithFirstVisit = async () => {
-    if (!selected || !userId) return;
-
-    const v = validateVisitInputs();
-    if (!v) return;
-
-    const parsed = myRating === "" ? 0 : Number(myRating);
-    const safeRating = clampRating(Number.isFinite(parsed) ? parsed : 0);
-
-    const { data: inserted, error: rErr } = await supabase
-      .from("restaurants")
-      .insert([
-        {
-          user_id: userId,
-          name: selected.name,
-          city: extractCityFromAddress(selected.address),
-          country: extractCountryFromAddress(selected.address),
-          rating: safeRating,
-          tags: myTags,
-          place_id: selected.placeId,
-          address: selected.address,
-          lat: selected.lat,
-          lng: selected.lng,
-          google_rating: selected.ratingGoogle,
-          google_user_ratings: selected.userRatingCount,
-          photo_name: selected.photoName,
-        },
-      ])
-      .select("id")
-      .maybeSingle();
-
-    if (rErr) {
-      if ((rErr as any).code === "23505") {
-        setMsg("ℹ️ Déjà dans tes restos. Ajoute une visite à la place.");
-        setAlreadyAdded(true);
-      } else if ((rErr as any).code === "23514") {
-        setMsg("❌ La note doit être comprise entre 0 et 20.");
-      } else {
-        setMsg("❌ Erreur ajout restaurant.");
-      }
-      return;
-    }
-
-    const restaurantId = inserted?.id;
-    if (!restaurantId) {
-      setMsg("❌ Impossible de récupérer l’id du restaurant.");
-      return;
-    }
-
-    const { error: vErr } = await supabase.from("restaurant_visits").insert([
-      {
-        user_id: userId,
-        restaurant_id: restaurantId,
-        price_eur: v.price,
-        covers: v.covers,
-        visited_at: nowISOStable(),
-      },
-    ]);
-
-    if (vErr) {
-      console.error(vErr.message);
-      setMsg("⚠️ Restaurant créé, mais erreur lors de l’ajout de la visite.");
-      return;
-    }
-
-    setMsg("✅ Restaurant ajouté + 1ère visite 🍴");
-    setQuery("");
-    resetSelection();
-    window.dispatchEvent(new Event("visits:changed"));
-  };
-
-  const canShowSuggestions = predictions.length > 0 && !selected;
-  const firstSuggestion = useMemo(() => predictions[0]?.placeId ?? null, [predictions]);
-
-  const canSubmit = useMemo(() => {
-    if (adding || !selected) return false;
-
-    const p = Number(myPrice);
-    const c = Number(myCovers);
-
-    const okPrice = myPrice.trim() !== "" && Number.isFinite(p) && p >= 0;
-    const okCovers = myCovers.trim() !== "" && Number.isFinite(c) && Number.isInteger(c) && c >= 1;
-
-    return okPrice && okCovers;
-  }, [adding, selected, myPrice, myCovers]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">🔎 Recherche</h1>
+    <>
+      <PageHeader title="Ajouter" subtitle="Cherche un restaurant pour l'ajouter ou noter une nouvelle visite." />
 
-      <div className="bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm space-y-3">
-        <div className="relative">
-          <input
-            className="w-full border border-[var(--hr-sand)] p-3 pr-12 rounded-2xl bg-[var(--hr-surface)] placeholder:text-[var(--hr-muted)]"
-            placeholder="Tape le nom d’un restaurant…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && firstSuggestion) {
-                e.preventDefault();
-                selectPlace(firstSuggestion);
-              }
-              if (e.key === "Escape") setPredictions([]);
-            }}
-            inputMode="search"
-            autoComplete="off"
-            autoFocus
-          />
-
-          {query.trim() && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                setPredictions([]);
-                resetSelection();
-                setMsg(null);
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full border border-[var(--hr-sand)] bg-[var(--hr-surface)] text-[var(--hr-muted)] flex items-center justify-center active:scale-[0.98]"
-              aria-label="Effacer"
-              title="Effacer"
-            >
-              ✕
+      <div className="relative mb-5">
+        <Search size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          className="fk-input !min-h-14 !pl-12 !pr-12 text-lg"
+          placeholder="Nom du restaurant…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (selected) {
+              setSelected(null);
+              setExistingId(null);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && predictions[0]) {
+              e.preventDefault();
+              selectPlace(predictions[0]);
+            }
+            if (e.key === "Escape") setPredictions([]);
+          }}
+          inputMode="search"
+          autoComplete="off"
+          autoFocus
+          aria-label="Nom du restaurant"
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+          {loading ? (
+            <Loader size={20} className="animate-spin text-muted" />
+          ) : query ? (
+            <button type="button" onClick={clear} className="p-1" aria-label="Effacer">
+              <X size={20} />
             </button>
-          )}
+          ) : null}
         </div>
+      </div>
 
-        {loading && <p className="text-sm text-[var(--hr-muted)]">Chargement…</p>}
-
-        {msg && (
-          <div className="text-sm rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-sand)]/25 p-3">
-            {msg}
-          </div>
-        )}
-
-        {canShowSuggestions && (
-          <ul className="border border-[var(--hr-sand)] rounded-2xl overflow-hidden">
+      <AnimatePresence mode="wait">
+        {predictions.length > 0 && !selected && (
+          <motion.ul
+            key="predictions"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="fk-card divide-y-2 divide-choco/15 overflow-hidden"
+          >
             {predictions.map((p) => {
-              const h = highlightMatch(p.text, query);
+              const [name, ...rest] = p.text.split(",");
               return (
-                <li key={p.placeId} className="border-b border-[var(--hr-sand)] last:border-b-0">
+                <li key={p.placeId}>
                   <button
                     type="button"
-                    className="w-full text-left px-4 py-3 bg-[var(--hr-surface)] hover:bg-[var(--hr-sand)]/20 active:bg-[var(--hr-sand)]/20"
-                    onClick={() => selectPlace(p.placeId)}
+                    onClick={() => selectPlace(p)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-sand/60"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 text-lg">📍</div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-[var(--hr-ink)] truncate">
-                          {h.match ? (
-                            <>
-                              {h.before}
-                              <span className="underline">{h.match}</span>
-                              {h.after}
-                            </>
-                          ) : (
-                            p.text
-                          )}
-                        </div>
-                        <div className="text-xs text-[var(--hr-muted)] truncate">Appuie pour voir les détails</div>
-                      </div>
-
-                      <div className="text-[var(--hr-muted)] mt-1">›</div>
-                    </div>
+                    <MapPin size={18} className="shrink-0 text-paprika" />
+                    <span className="min-w-0">
+                      <span className="block truncate font-bold">{name}</span>
+                      {rest.length > 0 && <span className="block truncate text-sm text-muted">{rest.join(",").trim()}</span>}
+                    </span>
                   </button>
                 </li>
               );
             })}
-          </ul>
+          </motion.ul>
         )}
-      </div>
 
-      {selected && (
-        <section className="bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm space-y-3">
-          <div className="text-lg font-semibold">{selected.name}</div>
-          <div className="text-sm text-[var(--hr-muted)]">{selected.address}</div>
+        {selected && (
+          <motion.div key={selected.placeId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <AddForm
+              place={selected}
+              existingId={existingId}
+              userId={user.id}
+              onDone={(msg) => {
+                toast(msg);
+                router.push("/restaurants");
+              }}
+              onError={(msg) => toast(msg, "error")}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* ✅ CARTE GOOGLE (tu l'avais supprimée) */}
-          {selected.lat != null && selected.lng != null && (
-            <a
-              href={`https://www.google.com/maps/search/?api=1&query=${selected.lat},${selected.lng}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-              title="Ouvrir dans Google Maps"
-            >
-              <div className="relative w-full h-28 sm:h-32 overflow-hidden rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)]">
-                <iframe
-                  key={`${selected.lat}-${selected.lng}`} // ✅ force refresh si tu changes de resto
-                  title="map"
-                  className="absolute inset-0 w-full h-full"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  src={`https://www.google.com/maps?q=${selected.lat},${selected.lng}&z=15&output=embed`}
-                />
-              </div>
-            </a>
-          )}
+      {!selected && predictions.length === 0 && query.trim().length < 2 && (
+        <p className="mt-8 text-center text-sm text-muted">
+          Astuce : tape le nom et la ville, par exemple <b className="text-choco">« Chez Janou Paris »</b>.
+        </p>
+      )}
+    </>
+  );
+}
 
-          <div className="flex items-center gap-2 text-sm text-[var(--hr-muted)]">
-            <span>⭐ {selected.ratingGoogle ?? "—"}</span>
-            {selected.userRatingCount ? <span>({selected.userRatingCount})</span> : null}
-            {selected.primaryType ? (
-              <span className="ml-auto px-2 py-1 rounded-full border border-[var(--hr-sand)] text-[var(--hr-ink)] bg-[var(--hr-surface)] text-xs">
-                {selected.primaryType}
-              </span>
-            ) : null}
+function AddForm({
+  place,
+  existingId,
+  userId,
+  onDone,
+  onError,
+}: {
+  place: PlaceDetails;
+  existingId: string | null;
+  userId: string;
+  onDone: (msg: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const visit = useVisitState();
+  const [rating, setRating] = useState(14);
+  const [tags, setTags] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!visit.valid) return;
+    setSaving(true);
+    try {
+      let restaurantId = existingId;
+
+      if (!restaurantId) {
+        const { data, error } = await supabase
+          .from("restaurants")
+          .insert({
+            user_id: userId,
+            name: place.name,
+            city: cityFromAddress(place.address),
+            country: countryFromAddress(place.address),
+            rating,
+            tags,
+            place_id: place.placeId,
+            address: place.address,
+            lat: place.lat,
+            lng: place.lng,
+            google_rating: place.ratingGoogle,
+            google_user_ratings: place.userRatingCount,
+            photo_name: place.photoName,
+          })
+          .select("id")
+          .single();
+        if (error || !data) {
+          onError(error?.code === "23505" ? "Ce resto est déjà dans ton carnet" : "Erreur lors de l'ajout du restaurant");
+          return;
+        }
+        restaurantId = data.id as string;
+      }
+
+      const { error } = await addVisit(userId, restaurantId, visit.toInput());
+      if (error) {
+        onError(existingId ? "Erreur lors de l'ajout de la visite" : "Resto ajouté, mais la visite n'a pas pu être enregistrée");
+        return;
+      }
+      onDone(existingId ? "Visite ajoutée 🍴" : "Restaurant ajouté 🍴");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <section className="fk-card overflow-hidden">
+        {place.lat != null && place.lng != null && (
+          <a href={mapsUrl(place.lat, place.lng)} target="_blank" rel="noopener noreferrer" className="block border-b-2 border-choco" title="Ouvrir dans Google Maps">
+            <iframe
+              title={`Carte : ${place.name}`}
+              className="pointer-events-none h-36 w-full grayscale-[30%] sepia-[25%]"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              src={`https://www.google.com/maps?q=${place.lat},${place.lng}&z=15&output=embed`}
+            />
+          </a>
+        )}
+        <div className="space-y-2 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-xl font-extrabold leading-tight">{place.name}</h2>
+            {existingId && <span className="fk-tag fk-tag-dark shrink-0">Déjà dans ton carnet</span>}
           </div>
-
-          {/* ✅ Prix + Couverts (obligatoires) */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Prix (€)</label>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                placeholder="ex: 25"
-                value={myPrice}
-                onChange={(e) => setMyPrice(e.target.value)}
-                className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)]"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Couverts</label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                placeholder="ex: 2"
-                value={myCovers}
-                onChange={(e) => setMyCovers(e.target.value)}
-                className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)]"
-              />
-            </div>
-          </div>
-
-          {/* Nouveau resto : note + tags */}
-          {!alreadyAdded && (
-            <>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Ta note (sur 20)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  step={1}
-                  placeholder="0 - 20"
-                  value={myRating}
-                  onChange={(e) => setMyRating(e.target.value)}
-                  className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)]"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Tes tags</div>
-                <div className="-mx-4 px-4">
-                  <div className="flex gap-2 overflow-x-auto pb-2 pt-1 pr-2">
-                    {AVAILABLE_TAGS.map((tag) => {
-                      const isSelected = myTags.includes(tag);
-                      return (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => toggleMyTag(tag)}
-                          className={`whitespace-nowrap px-3 py-2 rounded-full text-sm border transition active:scale-[0.98] ${
-                            isSelected
-                              ? "bg-[var(--hr-accent)] text-[var(--hr-cream)] border-[var(--hr-accent)]"
-                              : "bg-[var(--hr-surface)]/60 text-[var(--hr-muted)] border border-[var(--hr-sand)]/70 hover:bg-[var(--hr-sand)]/15"
-                          }`}
-                        >
-                          #{tag}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          <button
-            disabled={adding || !canSubmit}
-            onClick={async () => {
-              setAdding(true);
-              setMsg(null);
-              try {
-                if (alreadyAdded && existingRestaurantId) {
-                  await addVisitOnly(existingRestaurantId);
-                } else {
-                  await addNewRestaurantWithFirstVisit();
-                }
-              } finally {
-                setAdding(false);
-              }
-            }}
-            className="w-full py-3 rounded-2xl bg-[var(--hr-accent)] text-[var(--hr-cream)] font-semibold disabled:opacity-60 active:scale-[0.99]"
-          >
-            {alreadyAdded
-              ? adding
-                ? "Ajout…"
-                : "🍴 Ajouter une visite"
-              : adding
-              ? "Ajout…"
-              : "Ajouter à mes restaurants"}
-          </button>
-
-          {alreadyAdded && (
-            <p className="text-xs text-[var(--hr-muted)]">
-              Ce restaurant est déjà dans ta liste : tu ajoutes uniquement une nouvelle visite.
+          <p className="text-sm text-muted">{place.address}</p>
+          {place.ratingGoogle != null && (
+            <p className="flex items-center gap-1 text-sm font-bold">
+              <Star size={15} className="fill-paprika text-paprika" /> {place.ratingGoogle}
+              {place.userRatingCount ? <span className="font-normal text-muted">({place.userRatingCount} avis Google)</span> : null}
             </p>
           )}
-        </section>
-      )}
+        </div>
+      </section>
+
+      <section className="fk-card space-y-5 p-4">
+        <h3 className="text-lg font-extrabold">{existingId ? "Nouvelle visite" : "Ta première visite"}</h3>
+        <VisitFields {...visit.fields} />
+
+        {!existingId && (
+          <>
+            <div>
+              <span className="fk-label">Ta note</span>
+              <Stepper label="Note" value={rating} onChange={setRating} min={0} max={20} suffix="/20" />
+            </div>
+            <div>
+              <span className="fk-label">Tags</span>
+              <TagPicker value={tags} onChange={setTags} />
+            </div>
+          </>
+        )}
+
+        <button type="button" className="fk-btn fk-btn-accent w-full" disabled={!visit.valid || saving} onClick={submit}>
+          {saving ? "Ajout…" : existingId ? "Ajouter la visite" : "Ajouter à mon carnet"}
+        </button>
+        {!visit.valid && <p className="-mt-2 text-center text-xs text-muted">Indique le montant de l&apos;addition pour continuer.</p>}
+      </section>
     </div>
   );
 }

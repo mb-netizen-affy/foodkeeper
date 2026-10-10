@@ -1,59 +1,40 @@
 import { NextResponse } from "next/server";
 
+// Autocomplétion Google Places (API « New »), appelée côté serveur pour cacher la clé.
+
+type Suggestion = { placePrediction?: { placeId?: string; text?: { text?: string } } };
+
 export async function POST(req: Request) {
   try {
-    const { input } = await req.json();
-
-    if (!input || typeof input !== "string") {
-      return NextResponse.json({ predictions: [] }, { status: 200 });
+    const { input } = (await req.json()) as { input?: unknown };
+    if (typeof input !== "string" || !input.trim()) {
+      return NextResponse.json({ predictions: [] });
     }
 
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Missing GOOGLE_PLACES_API_KEY" },
-        { status: 500 }
-      );
-    }
+    if (!apiKey) return NextResponse.json({ error: "GOOGLE_PLACES_API_KEY manquante" }, { status: 500 });
 
-    // Places API (New) Autocomplete: POST https://places.googleapis.com/v1/places:autocomplete :contentReference[oaicite:2]{index=2}
     const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-      },
+      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey },
       body: JSON.stringify({
-        input,
-        // Astuce : limiter aux établissements (restaurants etc.)
-        includedPrimaryTypes: ["restaurant"],
-        // Tu peux ajouter languageCode / regionCode si tu veux
+        input: input.slice(0, 120),
+        includedPrimaryTypes: ["restaurant"], // uniquement des restaurants
         languageCode: "fr",
       }),
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: "Google Places error", details: text },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Erreur Google Places", details: await res.text() }, { status: 502 });
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as { suggestions?: Suggestion[] };
+    const predictions = (data.suggestions ?? [])
+      .map((s) => ({ placeId: s.placePrediction?.placeId, text: s.placePrediction?.text?.text }))
+      .filter((p) => p.placeId && p.text);
 
-    // On normalise une réponse simple
-    const predictions =
-      data?.suggestions?.map((s: any) => ({
-        placeId: s?.placePrediction?.placeId,
-        text: s?.placePrediction?.text?.text,
-      })) ?? [];
-
-    return NextResponse.json({ predictions }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: "Server error", details: String(e?.message ?? e) },
-      { status: 500 }
-    );
+    return NextResponse.json({ predictions });
+  } catch (e) {
+    return NextResponse.json({ error: "Erreur serveur", details: String(e) }, { status: 500 });
   }
 }

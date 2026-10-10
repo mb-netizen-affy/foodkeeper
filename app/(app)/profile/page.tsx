@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabaseClient";
+// « Mon compte » : identité, visibilité publique, partage, sécurité.
 
-type ProfileRow = {
-  name: string | null;
-  last_name: string | null;
-  locale: "fr" | "en" | "es" | "it" | "de";
-  is_public: boolean; // ✅ NEW
-};
+import { KeyRound, LogOut, Mail, Pencil, Share2 } from "lucide-react";
+import { useState } from "react";
+import { Avatar, PageHeader, SectionTitle } from "@/components/ui/Blocks";
+import { Switch } from "@/components/ui/Inputs";
+import Sheet from "@/components/ui/Sheet";
+import { useToast } from "@/components/ui/Toast";
+import { signOut, useAuth } from "@/lib/auth";
+import { fullName, initials } from "@/lib/format";
+import { supabase } from "@/lib/supabaseClient";
+import type { Locale } from "@/lib/types";
 
-const LOCALES: { value: ProfileRow["locale"]; label: string }[] = [
+const LOCALES: { value: Locale; label: string }[] = [
   { value: "fr", label: "🇫🇷 Français" },
   { value: "en", label: "🇬🇧 English" },
   { value: "es", label: "🇪🇸 Español" },
@@ -19,474 +21,262 @@ const LOCALES: { value: ProfileRow["locale"]; label: string }[] = [
   { value: "de", label: "🇩🇪 Deutsch" },
 ];
 
-function normalizeLocale(v: string | null | undefined): ProfileRow["locale"] {
-  const x = (v ?? "").toLowerCase();
-  if (x === "en" || x === "es" || x === "it" || x === "de") return x as any;
-  return "fr";
-}
+type Panel = null | "identity" | "email" | "password";
 
 export default function ProfilePage() {
-  const router = useRouter();
-
-  const [loading, setLoading] = useState(true);
-
-  const [userId, setUserId] = useState<string | null>(null);
-  const [email, setEmail] = useState<string>("—");
-
-  const [profile, setProfile] = useState<ProfileRow>({
-    name: null,
-    last_name: null,
-    locale: "fr",
-    is_public: false,
-  });
-
-  // Edition
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editLastName, setEditLastName] = useState("");
-  const [editLocale, setEditLocale] = useState<ProfileRow["locale"]>("fr");
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  // ✅ switch public/privé
+  const { user, profile, setProfile } = useAuth();
+  const toast = useToast();
+  // Arrivée depuis l'e-mail « mot de passe oublié » → on ouvre directement le changement
+  const [panel, setPanel] = useState<Panel>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("reset") ? "password" : null
+  );
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
-  // ✅ toast (pour partage)
-  const toastTimerRef = useRef<number | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const pushToast = (t: string) => {
-    setToast(t);
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
-  };
-
-  const loadProfile = async () => {
-    const { data } = await supabase.auth.getUser();
-    const user = data.user;
-
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-
-    setUserId(user.id);
-    setEmail(user.email ?? "—");
-
-    const { data: p, error: pErr } = await supabase
-      .from("profiles")
-      .select("name,last_name,locale,is_public")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (pErr) console.error("Erreur profile:", pErr.message);
-
-    const pLocale = normalizeLocale((p as any)?.locale);
-
-    const next: ProfileRow = {
-      name: (p as any)?.name ?? null,
-      last_name: (p as any)?.last_name ?? null,
-      locale: pLocale,
-      is_public: Boolean((p as any)?.is_public ?? false),
-    };
-
-    setProfile(next);
-
-    setEditName((next.name ?? "").toString());
-    setEditLastName((next.last_name ?? "").toString());
-    setEditLocale(next.locale);
-  };
-
-  useEffect(() => {
-    const init = async () => {
-      await loadProfile();
-      setLoading(false);
-    };
-    init();
-
-    return () => {
-      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const startEdit = () => {
-    setMsg(null);
-    setEditName((profile.name ?? "").toString());
-    setEditLastName((profile.last_name ?? "").toString());
-    setEditLocale(profile.locale);
-    setIsEditing(true);
-  };
-
-  const cancelEdit = () => {
-    setMsg(null);
-    setIsEditing(false);
-    setEditName((profile.name ?? "").toString());
-    setEditLastName((profile.last_name ?? "").toString());
-    setEditLocale(profile.locale);
-  };
-
-  const saveProfile = async () => {
-    if (!userId) return;
-
-    setSaving(true);
-    setMsg(null);
-
-    const cleanName = editName.trim().slice(0, 40);
-    const cleanLast = editLastName.trim().slice(0, 40);
-
-    const { error } = await supabase.from("profiles").upsert(
-      {
-        id: userId,
-        name: cleanName,
-        last_name: cleanLast,
-        locale: editLocale,
-        // ✅ IMPORTANT: on conserve la privacy
-        is_public: profile.is_public,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-    if (error) {
-      setMsg("❌ Erreur lors de l’enregistrement.");
-      setSaving(false);
-      return;
-    }
-
-    setProfile((prev) => ({
-      ...prev,
-      name: cleanName,
-      last_name: cleanLast,
-      locale: editLocale,
-    }));
-
-    setIsEditing(false);
-    setSaving(false);
-    setMsg("✅ Profil mis à jour");
-  };
-
-  const togglePrivacy = async () => {
-    if (!userId) return;
-
-    // ✅ bloque pendant l’édition pour éviter des conflits UX
-    if (isEditing) {
-      setMsg("ℹ️ Termine l’édition avant de changer la visibilité.");
-      return;
-    }
-
+  const togglePublic = async () => {
     const next = !profile.is_public;
-
-    // optimistic
-    setProfile((p) => ({ ...p, is_public: next }));
+    setProfile({ ...profile, is_public: next }); // affichage immédiat
     setSavingPrivacy(true);
-    setMsg(null);
-
     const { error } = await supabase
       .from("profiles")
       .update({ is_public: next, updated_at: new Date().toISOString() })
-      .eq("id", userId);
-
+      .eq("id", user.id);
     setSavingPrivacy(false);
-
     if (error) {
-      // rollback
-      setProfile((p) => ({ ...p, is_public: !next }));
-      setMsg("❌ Erreur lors de la mise à jour de la visibilité.");
+      setProfile({ ...profile, is_public: !next });
+      toast("Erreur lors du changement de visibilité", "error");
       return;
     }
-
-    setMsg(next ? "✅ Ton compte est maintenant public" : "✅ Ton compte est maintenant privé");
+    toast(next ? "Ton carnet est maintenant public" : "Ton carnet est maintenant privé");
   };
 
-  const shareMyProfile = async () => {
-  if (!userId) return;
-
-  if (!profile.is_public) {
-    pushToast("Active le mode public pour partager ton profil.");
-    return;
-  }
-
-  const url = `${window.location.origin}/p/${userId}`;
-  const title = "Mon profil resto";
-  const text = "Viens voir mes stats & restos 🍴";
-
-  try {
-    // ✅ Partage natif (mobile)
-    if (navigator.share) {
-      await navigator.share({ title, text, url });
-      pushToast("✅ Partagé !");
-      return;
-    }
-
-    // ✅ Fallback copie
-    if (navigator.clipboard?.writeText) {
+  const share = async () => {
+    const url = `${window.location.origin}/p/${user.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Mon carnet FoodKeeper", text: "Viens voir mes restos et mes stats 🍴", url });
+        return;
+      }
       await navigator.clipboard.writeText(url);
-      pushToast("✅ Lien copié !");
-      return;
+      toast("Lien copié !");
+    } catch (e) {
+      // L'utilisateur a fermé la fenêtre de partage : rien à signaler
+      if (e instanceof Error && e.name === "AbortError") return;
+      toast("Impossible de partager le lien", "error");
     }
+  };
 
-    // ✅ Fallback “old school”
-    const ta = document.createElement("textarea");
-    ta.value = url;
-    ta.style.position = "fixed";
-    ta.style.left = "-9999px";
-    ta.style.top = "-9999px";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-
-    pushToast("✅ Lien copié !");
-  } catch (e: any) {
-    // Si l’utilisateur annule le share, iOS/Android renvoie souvent une erreur -> on ignore
-    const msg = String(e?.message ?? e ?? "");
-    if (msg.toLowerCase().includes("abort") || msg.toLowerCase().includes("canceled")) return;
-
-    pushToast("❌ Impossible de partager le lien.");
-  }
-};
-
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-[var(--hr-cream)] text-[var(--hr-ink)] px-4 py-10 pb-28">
-        <div className="max-w-md mx-auto space-y-5">
-          <div className="h-7 w-28 rounded-xl bg-[var(--hr-sand)]/40" />
-          <div className="rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] p-4 shadow-sm space-y-3">
-            <div className="h-4 w-40 rounded-lg bg-[var(--hr-sand)]/40" />
-            <div className="h-10 w-full rounded-2xl bg-[var(--hr-sand)]/40" />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="h-12 rounded-2xl bg-[var(--hr-sand)]/40" />
-              <div className="h-12 rounded-2xl bg-[var(--hr-sand)]/40" />
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const name = fullName(profile.name, profile.last_name);
+  const localeLabel = LOCALES.find((l) => l.value === profile.locale)?.label ?? "🇫🇷 Français";
+  const isOAuth = user.app_metadata?.provider && user.app_metadata.provider !== "email";
 
   return (
-    <main className="min-h-screen bg-[var(--hr-cream)] text-[var(--hr-ink)] px-4 py-10 pb-28">
-      {/* ✅ Toast */}
-      {toast ? (
-        <div className="fixed top-16 left-4 right-4 z-50">
-          <div className="mx-auto max-w-md bg-[var(--hr-ink)] text-[var(--hr-cream)] px-4 py-3 rounded-2xl shadow">
-            {toast}
+    <>
+      <PageHeader title="Mon compte" />
+
+      <section className="fk-card mb-5 p-5">
+        <div className="flex items-center gap-4">
+          <Avatar text={initials(profile.name, profile.last_name, user.email)} size="lg" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xl font-extrabold">{name || "Sans nom"}</p>
+            <p className="truncate text-sm text-muted">{user.email}</p>
+            <p className="text-sm text-muted">{localeLabel}</p>
           </div>
-        </div>
-      ) : null}
-
-      <div className="max-w-md mx-auto space-y-5">
-        <header className="space-y-1">
-          <h1 className="text-xl font-bold">👤 Profil</h1>
-          <p className="text-sm text-[var(--hr-muted)]">Paramètres de ton compte.</p>
-        </header>
-
-        {/* ✅ Visibilité du compte */}
-        <section className="bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[var(--hr-ink)]">Compte public</p>
-              <p className="text-xs text-[var(--hr-muted)] mt-1">
-                {profile.is_public
-                  ? "Visible via un lien public."
-                  : "Seulement toi peux voir ton carnet."}
-              </p>
-            </div>
-
-            <Switch
-              checked={profile.is_public}
-              onClick={togglePrivacy}
-              disabled={savingPrivacy}
-              label={profile.is_public ? "Public" : "Privé"}
-            />
-          </div>
-
-          {savingPrivacy ? <p className="text-xs text-[var(--hr-muted)] mt-3">Sauvegarde…</p> : null}
-        </section>
-
-        {/* Bloc compte */}
-        <section className="bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-3 w-full">
-              <div>
-                <p className="text-xs text-[var(--hr-muted)]">Email</p>
-                <p className="text-sm font-medium text-[var(--hr-ink)]">{email}</p>
-              </div>
-
-              {!isEditing ? (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <InfoPill label="Prénom" value={profile.name || "—"} />
-                    <InfoPill label="Nom" value={profile.last_name || "—"} />
-                  </div>
-
-                  <div className="space-y-1">
-                    <p className="text-xs text-[var(--hr-muted)]">Langue</p>
-                    <p className="text-sm font-semibold text-[var(--hr-ink)]">
-                      {LOCALES.find((l) => l.value === profile.locale)?.label ?? "🇫🇷 Français"}
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs text-[var(--hr-muted)]">Prénom</label>
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      placeholder="Prénom"
-                      className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--hr-accent)]"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs text-[var(--hr-muted)]">Nom</label>
-                    <input
-                      value={editLastName}
-                      onChange={(e) => setEditLastName(e.target.value)}
-                      placeholder="Nom"
-                      className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--hr-accent)]"
-                    />
-                  </div>
-
-                  <div className="space-y-1 col-span-2">
-                    <label className="text-xs text-[var(--hr-muted)]">Langue</label>
-                    <select
-                      value={editLocale}
-                      onChange={(e) => setEditLocale(e.target.value as ProfileRow["locale"])}
-                      className="w-full border border-[var(--hr-sand)] p-3 rounded-2xl bg-[var(--hr-surface)] focus:outline-none focus:ring-2 focus:ring-[var(--hr-accent)]"
-                    >
-                      {LOCALES.map((l) => (
-                        <option key={l.value} value={l.value}>
-                          {l.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {msg && (
-                <div className="mt-2 text-sm rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-sand)]/25 p-3">
-                  {msg}
-                </div>
-              )}
-
-              {isEditing && (
-                <div className="flex gap-2 mt-3">
-                  <button
-                    type="button"
-                    onClick={cancelEdit}
-                    className="flex-1 py-3 rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] text-[var(--hr-ink)] font-medium"
-                  >
-                    Annuler
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={saveProfile}
-                    disabled={saving}
-                    className="flex-1 py-3 rounded-2xl bg-[var(--hr-accent)] text-[var(--hr-cream)] font-semibold disabled:opacity-60 active:scale-[0.99]"
-                  >
-                    {saving ? "Enregistrement…" : "💾 Sauvegarder"}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {!isEditing && (
-              <button
-                type="button"
-                onClick={startEdit}
-                className="shrink-0 w-10 h-10 rounded-full border border-[var(--hr-sand)] bg-[var(--hr-surface)] text-[var(--hr-ink)] flex items-center justify-center"
-                aria-label="Modifier le profil"
-                title="Modifier"
-              >
-                ✏️
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* ✅ Partager mon profil */}
-        {profile.is_public ? (
-          <button
-            type="button"
-            onClick={shareMyProfile}
-            className="w-full py-3 rounded-2xl bg-[var(--hr-accent)] text-[var(--hr-cream)] font-semibold active:scale-[0.99]"
-          >
-            🔗 Partager mon profil
+          <button type="button" className="fk-icon-btn" aria-label="Modifier mon profil" onClick={() => setPanel("identity")}>
+            <Pencil size={16} />
           </button>
-        ) : (
-          <p className="text-xs text-[var(--hr-muted)]">
-            Active le mode public pour générer un lien partageable.
-          </p>
-        )}
+        </div>
+      </section>
 
-        {/* Déconnexion */}
-        <button
-          type="button"
-          className="w-full py-3 rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] text-[var(--hr-ink)] font-semibold active:scale-[0.99]"
-          onClick={async () => {
-            await supabase.auth.signOut();
-            router.replace("/login");
-          }}
-        >
-          Se déconnecter
-        </button>
-      </div>
-    </main>
+      <SectionTitle>Partage</SectionTitle>
+      <section className="fk-card mb-5 divide-y-2 divide-choco/15">
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div>
+            <p className="font-extrabold">Carnet public</p>
+            <p className="text-sm text-muted">
+              {profile.is_public ? "Visible dans la Communauté et via ton lien." : "Toi seul peux voir ton carnet."}
+            </p>
+          </div>
+          <Switch checked={profile.is_public} onChange={togglePublic} disabled={savingPrivacy} label="Carnet public" />
+        </div>
+        <div className="p-4">
+          <button type="button" className="fk-btn fk-btn-accent w-full" onClick={share} disabled={!profile.is_public}>
+            <Share2 size={18} strokeWidth={2.5} /> Partager mon carnet
+          </button>
+          {!profile.is_public && <p className="mt-2 text-center text-xs text-muted">Passe ton carnet en public pour le partager.</p>}
+        </div>
+      </section>
+
+      <SectionTitle>Sécurité</SectionTitle>
+      <section className="fk-card mb-5 divide-y-2 divide-choco/15 overflow-hidden">
+        <MenuRow icon={Mail} label="Changer d'e-mail" onClick={() => setPanel("email")} disabled={Boolean(isOAuth)} />
+        <MenuRow icon={KeyRound} label="Changer de mot de passe" onClick={() => setPanel("password")} disabled={Boolean(isOAuth)} />
+      </section>
+      {isOAuth && <p className="-mt-3 mb-5 text-xs text-muted">Tu es connecté avec Google : e-mail et mot de passe se gèrent depuis ton compte Google.</p>}
+
+      <button type="button" className="fk-btn fk-btn-ghost w-full" onClick={signOut}>
+        <LogOut size={18} /> Se déconnecter
+      </button>
+
+      <Sheet open={panel === "identity"} onClose={() => setPanel(null)} title="Mon profil">
+        {panel === "identity" && <IdentityForm onDone={() => setPanel(null)} />}
+      </Sheet>
+      <Sheet open={panel === "email"} onClose={() => setPanel(null)} title="Changer d'e-mail">
+        {panel === "email" && <EmailForm onDone={() => setPanel(null)} />}
+      </Sheet>
+      <Sheet open={panel === "password"} onClose={() => setPanel(null)} title="Nouveau mot de passe">
+        {panel === "password" && <PasswordForm onDone={() => setPanel(null)} />}
+      </Sheet>
+    </>
   );
 }
 
-function InfoPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] px-4 py-3">
-      <p className="text-xs text-[var(--hr-muted)]">{label}</p>
-      <p className="text-sm font-semibold text-[var(--hr-ink)] truncate">{value}</p>
-    </div>
-  );
-}
-
-function Switch({
-  checked,
+function MenuRow({
+  icon: Icon,
+  label,
   onClick,
   disabled,
-  label,
 }: {
-  checked: boolean;
+  icon: typeof Mail;
+  label: string;
   onClick: () => void;
   disabled?: boolean;
-  label?: string;
 }) {
   return (
     <button
       type="button"
-      role="switch"
-      aria-checked={checked}
       onClick={onClick}
       disabled={disabled}
-      className={`shrink-0 inline-flex items-center gap-2 px-2 py-2 rounded-full border transition active:scale-[0.98] ${
-        checked
-          ? "border-[var(--hr-accent)] bg-[var(--hr-accent)]/15"
-          : "border-[var(--hr-sand)] bg-[var(--hr-surface)]"
-      } ${disabled ? "opacity-60" : ""}`}
-      title={checked ? "Compte public" : "Compte privé"}
+      className="flex w-full items-center gap-3 px-4 py-3.5 text-left font-bold hover:bg-sand/60 disabled:opacity-50 disabled:hover:bg-transparent"
     >
-      {label ? (
-        <span className="text-xs font-semibold text-[var(--hr-ink)] w-12 text-center">{label}</span>
-      ) : null}
-
-      <span className={`relative inline-flex w-12 h-7 rounded-full transition ${checked ? "bg-[var(--hr-accent)]" : "bg-[var(--hr-sand)]"}`}>
-        <span
-          className={`absolute top-0.5 w-6 h-6 rounded-full bg-[var(--hr-cream)] shadow-sm transition-transform ${
-            checked ? "translate-x-[22px]" : "translate-x-0.5"
-          }`}
-        />
-      </span>
+      <Icon size={18} /> {label}
     </button>
+  );
+}
+
+function IdentityForm({ onDone }: { onDone: () => void }) {
+  const { user, profile, setProfile } = useAuth();
+  const toast = useToast();
+  const [first, setFirst] = useState(profile.name ?? "");
+  const [last, setLast] = useState(profile.last_name ?? "");
+  const [locale, setLocale] = useState<Locale>(profile.locale);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        const next = { ...profile, name: first.trim().slice(0, 40), last_name: last.trim().slice(0, 40), locale };
+        const { error } = await supabase.from("profiles").upsert(
+          { id: user.id, name: next.name, last_name: next.last_name, locale, is_public: profile.is_public, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
+        setSaving(false);
+        if (error) {
+          toast("Erreur lors de l'enregistrement", "error");
+          return;
+        }
+        setProfile(next);
+        toast("Profil mis à jour");
+        onDone();
+      }}
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="fk-label" htmlFor="first">Prénom</label>
+          <input id="first" className="fk-input" value={first} onChange={(e) => setFirst(e.target.value)} autoComplete="given-name" />
+        </div>
+        <div>
+          <label className="fk-label" htmlFor="last">Nom</label>
+          <input id="last" className="fk-input" value={last} onChange={(e) => setLast(e.target.value)} autoComplete="family-name" />
+        </div>
+      </div>
+      <div>
+        <label className="fk-label" htmlFor="locale">Langue préférée</label>
+        <select id="locale" className="fk-input" value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
+          {LOCALES.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button type="submit" className="fk-btn fk-btn-primary w-full" disabled={saving}>
+        {saving ? "…" : "Enregistrer"}
+      </button>
+    </form>
+  );
+}
+
+function EmailForm({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        const { error } = await supabase.auth.updateUser({ email: email.trim().toLowerCase() });
+        setSaving(false);
+        if (error) {
+          toast(error.message, "error");
+          return;
+        }
+        toast("Vérifie ta boîte mail pour confirmer");
+        onDone();
+      }}
+    >
+      <div>
+        <label className="fk-label" htmlFor="new-email">Nouvel e-mail</label>
+        <input id="new-email" type="email" required className="fk-input" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+      </div>
+      <p className="text-sm text-muted">Un lien de confirmation sera envoyé à la nouvelle adresse.</p>
+      <button type="submit" className="fk-btn fk-btn-primary w-full" disabled={saving || !email.includes("@")}>
+        {saving ? "…" : "Changer d'e-mail"}
+      </button>
+    </form>
+  );
+}
+
+function PasswordForm({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [pwd, setPwd] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [saving, setSaving] = useState(false);
+  const valid = pwd.length >= 8 && pwd === pwd2;
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!valid) return;
+        setSaving(true);
+        const { error } = await supabase.auth.updateUser({ password: pwd });
+        setSaving(false);
+        if (error) {
+          toast(error.message, "error");
+          return;
+        }
+        toast("Mot de passe modifié");
+        onDone();
+      }}
+    >
+      <div>
+        <label className="fk-label" htmlFor="pwd">Nouveau mot de passe</label>
+        <input id="pwd" type="password" className="fk-input" value={pwd} onChange={(e) => setPwd(e.target.value)} autoComplete="new-password" />
+        <p className="mt-1 text-xs text-muted">8 caractères minimum.</p>
+      </div>
+      <div>
+        <label className="fk-label" htmlFor="pwd2">Confirmer</label>
+        <input id="pwd2" type="password" className="fk-input" value={pwd2} onChange={(e) => setPwd2(e.target.value)} autoComplete="new-password" />
+        {pwd2 && pwd !== pwd2 && <p className="mt-1 text-xs font-bold text-danger">Les mots de passe ne correspondent pas.</p>}
+      </div>
+      <button type="submit" className="fk-btn fk-btn-primary w-full" disabled={!valid || saving}>
+        {saving ? "…" : "Enregistrer"}
+      </button>
+    </form>
   );
 }

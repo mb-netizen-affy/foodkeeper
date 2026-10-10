@@ -1,338 +1,141 @@
 "use client";
 
+import { ChevronRight, Loader, Search, X } from "lucide-react";
+import { motion } from "motion/react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabaseClient";
+import { useEffect, useRef, useState } from "react";
+import { Avatar, PageHeader } from "@/components/ui/Blocks";
+import { useAuth } from "@/lib/auth";
+import { gourmetBadge, topTags, type Badge } from "@/lib/badge";
+import { fullName, initials, plural } from "@/lib/format";
+import { supabase } from "@/lib/supabaseClient";
 
-type PublicProfileRow = {
+type Result = {
   id: string;
   name: string | null;
   last_name: string | null;
-  is_public: boolean;
-  updated_at: string | null;
+  restaurantCount: number;
+  badge: Badge;
 };
 
-type UserPreviewStats = {
-  restaurantsCount: number;
-  badge: string;
-};
-
-function norm(s: string) {
-  return (s ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "U";
-  const a = parts[0]?.[0] ?? "U";
-  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
-  return (a + b).toUpperCase();
-}
-
-/**
- * Badge basé sur tes tags dispo :
- * Cuisine: Français, Italien, Asiatique, Indien, Oriental, Mexicain, Américain, Méditerranéen
- * Concept: Bistrot, Gastronomique, Fast-food, Street food, Volonté, Tapas / Partage, Brunch
- * Régimes: Vegan
- * Ambiance: Romantique, Familial
- */
-function badgeFromTopTags(topTags: string[]) {
-  const tags = topTags.map(norm);
-
-  const has = (t: string) => tags.includes(norm(t));
-
-  // Cuisine
-  if (has("Italien")) return "🍕 Italien dans l’âme";
-  if (has("Asiatique")) return "🍜 Aventurier d’Asie";
-  if (has("Français")) return "🥖 Terroir lover";
-  if (has("Indien")) return "🌶️ Curry lover";
-  if (has("Oriental")) return "🥙 Orient express";
-  if (has("Mexicain")) return "🌮 Team tacos";
-  if (has("Américain")) return "🍔 USA vibes";
-  if (has("Méditerranéen")) return "🫒 Méditerranée mood";
-
-  // Concepts / vibes
-  if (has("Gastronomique")) return "💎 Fine dining";
-  if (has("Bistrot")) return "🍷 Esprit bistrot";
-  if (has("Brunch")) return "🥐 Brunch addict";
-  if (has("Tapas / Partage")) return "🍢 Team partage";
-  if (has("Street food")) return "🛵 Street food lover";
-  if (has("Fast-food")) return "🍟 Fast & fun";
-  if (has("Volonté")) return "😋 À volonté master";
-
-  // Régime
-  if (has("Vegan")) return "🥗 Vegan mood";
-
-  // Ambiance
-  if (has("Romantique")) return "💘 Romantique";
-  if (has("Familial")) return "👨‍👩‍👧 Familial";
-
-  return "🍽️ Gourmand curieux";
+/** Retire les caractères qui cassent le filtre Supabase (.or) : virgules, parenthèses, %… */
+function safeQuery(q: string) {
+  return q.replace(/[,()%*\\:"']/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export default function CommunityPage() {
-  const router = useRouter();
-
-  const [loading, setLoading] = useState(true); // init auth
-  const [searching, setSearching] = useState(false); // loading search results
-
-  const [myId, setMyId] = useState<string | null>(null);
-
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
-  const [results, setResults] = useState<PublicProfileRow[]>([]);
+  const [results, setResults] = useState<Result[]>([]);
+  const [searching, setSearching] = useState(false);
+  const reqId = useRef(0);
 
-  const [statsByUser, setStatsByUser] = useState<Record<string, UserPreviewStats>>({});
+  const q = safeQuery(search);
 
-  const searchReqId = useRef(0);
-
-  // 1) Auth only
   useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
-
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-
-      setMyId(user.id);
-      setLoading(false);
-    };
-
-    init();
-  }, [router]);
-
-  // 2) Search profiles ONLY when user types
-  useEffect(() => {
-    const q = search.trim();
-    const nq = norm(q);
-
-    // reset when empty
-    if (!nq) {
+    if (q.length < 2) {
       setResults([]);
-      setSearching(false);
       return;
     }
-
     const t = window.setTimeout(async () => {
-      const req = ++searchReqId.current;
+      const req = ++reqId.current;
       setSearching(true);
-
       try {
-        // Search in name OR last_name (simple & efficace)
-        // Note: on garde is_public=true
-        const { data, error } = await supabase
+        const { data: profiles, error } = await supabase
           .from("profiles")
-          .select("id,name,last_name,is_public,updated_at")
+          .select("id,name,last_name")
           .eq("is_public", true)
+          .neq("id", user.id)
           .or(`name.ilike.%${q}%,last_name.ilike.%${q}%`)
           .order("updated_at", { ascending: false })
           .limit(25);
-
-        if (req !== searchReqId.current) return;
-
-        if (error) {
-          console.error("Erreur search profiles:", error.message);
+        if (req !== reqId.current) return;
+        if (error || !profiles?.length) {
           setResults([]);
-          setSearching(false);
           return;
         }
 
-        const list = ((data ?? []) as any as PublicProfileRow[]).filter((p) => p.id !== myId);
-        setResults(list);
+        // Nombre de restos + badge de chaque profil trouvé
+        const { data: restos } = await supabase
+          .from("restaurants")
+          .select("user_id,tags")
+          .in("user_id", profiles.map((p) => p.id));
+        if (req !== reqId.current) return;
+
+        setResults(
+          profiles.map((p) => {
+            const mine = (restos ?? []).filter((r) => r.user_id === p.id) as { tags: string[] | null }[];
+            return {
+              ...p,
+              restaurantCount: mine.length,
+              badge: gourmetBadge(topTags(mine).map((t) => t.tag)),
+            };
+          })
+        );
       } finally {
-        if (req === searchReqId.current) setSearching(false);
+        if (req === reqId.current) setSearching(false);
       }
     }, 250);
-
     return () => window.clearTimeout(t);
-  }, [search, myId]);
-
-  // 3) For the displayed results: compute restaurantsCount + badge from their restaurants tags
-  useEffect(() => {
-    const run = async () => {
-      // rien à faire si pas de résultats
-      if (!results.length) return;
-
-      // on limite pour éviter trop de charge si jamais
-      const ids = results.slice(0, 25).map((p) => p.id);
-
-      // fetch restaurants minimal fields for these users
-      // ⚠️ nécessite RLS qui autorise la lecture si user public
-      const { data, error } = await supabase
-        .from("restaurants")
-        .select("user_id,tags")
-        .in("user_id", ids);
-
-      if (error) {
-        console.error("Erreur fetch restaurants for preview:", error.message);
-        return;
-      }
-
-      // aggregate in JS
-      const countBy = new Map<string, number>();
-      const tagCountBy = new Map<string, Map<string, number>>();
-
-      for (const row of (data ?? []) as any[]) {
-        const uid = String(row.user_id);
-        countBy.set(uid, (countBy.get(uid) ?? 0) + 1);
-
-        const tags = (row.tags ?? []) as string[];
-        if (!tagCountBy.has(uid)) tagCountBy.set(uid, new Map());
-        const m = tagCountBy.get(uid)!;
-
-        for (const t of tags) {
-          const key = String(t ?? "").trim();
-          if (!key) continue;
-          m.set(key, (m.get(key) ?? 0) + 1);
-        }
-      }
-
-      const next: Record<string, UserPreviewStats> = { ...statsByUser };
-
-      for (const uid of ids) {
-        const restaurantsCount = countBy.get(uid) ?? 0;
-
-        const tagMap = tagCountBy.get(uid) ?? new Map<string, number>();
-        const topTags = Array.from(tagMap.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 3)
-          .map(([tag]) => tag);
-
-        next[uid] = {
-          restaurantsCount,
-          badge: badgeFromTopTags(topTags),
-        };
-      }
-
-      setStatsByUser(next);
-    };
-
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results]);
-
-  const showList = useMemo(() => search.trim().length > 0, [search]);
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-[var(--hr-cream)] text-[var(--hr-ink)] px-4 py-10 pb-28">
-        <div className="max-w-md mx-auto space-y-4">
-          <div className="h-7 w-40 rounded-xl bg-[var(--hr-sand)]/40" />
-          <div className="h-12 rounded-2xl bg-[var(--hr-sand)]/35" />
-          <div className="space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-16 rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] shadow-sm"
-              />
-            ))}
-          </div>
-        </div>
-      </main>
-    );
-  }
+  }, [q, user.id]);
 
   return (
-    <main className="min-h-screen bg-[var(--hr-cream)] text-[var(--hr-ink)] px-4 py-10 pb-28">
-      <div className="max-w-md mx-auto space-y-5">
-        <header className="space-y-1">
-          <h1 className="text-xl font-bold">👥 Communauté</h1>
-          <p className="text-sm text-[var(--hr-muted)]">
-            Cherche un utilisateur pour découvrir son carnet public.
-          </p>
-        </header>
+    <>
+      <PageHeader title="Communauté" subtitle="Découvre les carnets publics des autres gourmands." />
 
-        <section className="bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm space-y-3">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Rechercher un utilisateur…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-[var(--hr-sand)] p-3 pr-12 rounded-2xl bg-[var(--hr-surface)] placeholder:text-[var(--hr-muted)]"
-            />
-
-            {search.trim() ? (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full border border-[var(--hr-sand)] bg-[var(--hr-surface)] text-[var(--hr-muted)] flex items-center justify-center active:scale-[0.98]"
-                aria-label="Effacer"
-                title="Effacer"
-              >
-                ✕
-              </button>
-            ) : null}
-          </div>
-
-          {/* ✅ On n’affiche rien tant qu’il n’y a pas de recherche */}
-          {!showList ? (
-            <div>
-            </div>
-          ) : searching ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-16 rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-surface)] shadow-sm"
-                />
-              ))}
-            </div>
-          ) : results.length === 0 ? (
-            <p className="text-sm text-[var(--hr-muted)]">
-              Aucun résultat pour{" "}
-              <span className="font-medium text-[var(--hr-ink)]">“{search.trim()}”</span>.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {results.map((p) => {
-                const displayName = `${p.name ?? ""} ${p.last_name ?? ""}`.trim() || "Utilisateur";
-                const stats = statsByUser[p.id];
-
-                const restaurantsCount = stats?.restaurantsCount ?? 0;
-                const badge = stats?.badge ?? "🍽️ Gourmand curieux";
-
-                return (
-                  <li key={p.id}>
-                    <Link
-                      href={`/p/${p.id}`}
-                      className="block bg-[var(--hr-surface)] border border-[var(--hr-sand)] rounded-2xl p-4 shadow-sm active:scale-[0.99] transition"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="shrink-0 w-11 h-11 rounded-2xl border border-[var(--hr-sand)] bg-[var(--hr-sand)]/25 flex items-center justify-center font-bold">
-                          {initials(displayName)}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold truncate">{displayName}</p>
-                          <p className="text-sm text-[var(--hr-muted)] truncate">
-                            {restaurantsCount} resto{restaurantsCount > 1 ? "s" : ""} · {badge}
-                          </p>
-                        </div>
-
-                        <span className="text-[var(--hr-muted)]">›</span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <p className="text-xs text-[var(--hr-muted)]">
-          Seuls les comptes en mode{" "}
-          <span className="font-medium text-[var(--hr-ink)]">public</span>{" "}
-          peuvent être trouvés ici.
-        </p>
+      <div className="relative mb-5">
+        <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          type="search"
+          placeholder="Prénom ou nom…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="fk-input !pl-11 !pr-12"
+          aria-label="Rechercher un utilisateur"
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+          {searching ? (
+            <Loader size={18} className="animate-spin text-muted" />
+          ) : search ? (
+            <button type="button" onClick={() => setSearch("")} className="p-1" aria-label="Effacer">
+              <X size={18} />
+            </button>
+          ) : null}
+        </div>
       </div>
-    </main>
+
+      {q.length < 2 ? (
+        <div className="fk-card-flat border-dashed px-6 py-10 text-center">
+          <div className="mb-3 text-5xl" aria-hidden>
+            👥
+          </div>
+          <p className="mx-auto max-w-xs text-sm text-muted">
+            Tape au moins deux lettres. Seuls les comptes en mode <b className="text-choco">public</b> apparaissent ici.
+          </p>
+        </div>
+      ) : !searching && results.length === 0 ? (
+        <p className="text-center text-sm text-muted">Aucun carnet public pour « {q} ».</p>
+      ) : (
+        <ul className="space-y-3">
+          {results.map((p, i) => {
+            const name = fullName(p.name, p.last_name) || "Gourmand anonyme";
+            return (
+              <motion.li key={p.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}>
+                <Link href={`/p/${p.id}`} className="fk-card flex items-center gap-3 p-3 active:translate-x-[2px] active:translate-y-[2px] active:!shadow-brut-sm">
+                  <Avatar text={initials(p.name, p.last_name)} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-extrabold">{name}</p>
+                    <p className="truncate text-sm text-muted">
+                      {plural(p.restaurantCount, "resto", "restos")} · {p.badge.emoji} {p.badge.label}
+                    </p>
+                  </div>
+                  <ChevronRight size={20} className="shrink-0" />
+                </Link>
+              </motion.li>
+            );
+          })}
+        </ul>
+      )}
+    </>
   );
 }
