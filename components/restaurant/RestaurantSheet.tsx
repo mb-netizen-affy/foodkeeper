@@ -3,11 +3,12 @@
 // Fiche d'un restaurant : infos, historique des visites, modifications.
 
 import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sheet from "@/components/ui/Sheet";
 import { useToast } from "@/components/ui/Toast";
 import { addVisit, deleteRestaurant, deleteVisit, updateRestaurant, updateVisit } from "@/lib/data";
 import { formatDateFR, formatEUR, plural, round1 } from "@/lib/format";
+import { signedPhotoUrls } from "@/lib/photos";
 import { mapsUrl } from "@/lib/places";
 import { tagLabel } from "@/lib/tags";
 import type { RestaurantWithStats, Visit } from "@/lib/types";
@@ -47,21 +48,38 @@ export default function RestaurantSheet({
 
   const back = () => setMode({ kind: "detail" });
 
+  /** Lance une action, affiche le résultat, recharge. Renvoie true si tout s'est bien passé. */
   const run = async (action: () => PromiseLike<{ error: unknown }>, ok: string, ko: string, then?: () => void) => {
     const { error } = await action();
     if (error) {
       console.error(error);
       toast(ko, "error");
-      return;
+      return false;
     }
     await onChanged();
     toast(ok);
     (then ?? back)();
+    return true;
   };
 
   const myVisits = restaurant
     ? visits.filter((v) => v.restaurant_id === restaurant.id).sort((a, b) => (a.visited_at < b.visited_at ? 1 : -1))
     : [];
+
+  // Liens d'affichage des photos de ce resto
+  const photoKey = myVisits
+    .map((v) => v.photo_path)
+    .filter(Boolean)
+    .join("|");
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!photoKey) return;
+    let alive = true;
+    signedPhotoUrls(photoKey.split("|")).then((urls) => alive && setPhotoUrls((prev) => ({ ...prev, ...urls })));
+    return () => {
+      alive = false;
+    };
+  }, [photoKey]);
 
   const titles: Record<Mode["kind"], string> = {
     detail: restaurant?.name ?? "",
@@ -128,22 +146,53 @@ export default function RestaurantSheet({
               </p>
             ) : (
               <ul className="divide-y-2 divide-dashed divide-choco/20 rounded-2xl border-2 border-choco bg-cream/50">
-                {myVisits.map((v) => (
-                  <li key={v.id} className="flex items-center gap-2 px-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold">{formatDateFR(v.visited_at)}</p>
-                      <p className="text-sm text-muted">
-                        {formatEUR(v.price_eur)} · {plural(v.covers ?? 1, "couvert", "couverts")}
-                      </p>
-                    </div>
-                    <button type="button" className="fk-icon-btn" aria-label="Modifier la visite" onClick={() => setMode({ kind: "editVisit", visit: v })}>
-                      <Pencil size={16} />
-                    </button>
-                    <button type="button" className="fk-icon-btn" aria-label="Supprimer la visite" onClick={() => setMode({ kind: "deleteVisit", visit: v })}>
-                      <Trash2 size={16} />
-                    </button>
-                  </li>
-                ))}
+                {myVisits.map((v) => {
+                  const photo = v.photo_path ? photoUrls[v.photo_path] : null;
+                  return (
+                    <li key={v.id} className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold">{formatDateFR(v.visited_at)}</p>
+                          <p className="text-sm text-muted">
+                            {formatEUR(v.price_eur)} · {plural(v.covers ?? 1, "couvert", "couverts")}
+                          </p>
+                        </div>
+                        <button type="button" className="fk-icon-btn" aria-label="Modifier la visite" onClick={() => setMode({ kind: "editVisit", visit: v })}>
+                          <Pencil size={16} />
+                        </button>
+                        <button type="button" className="fk-icon-btn" aria-label="Supprimer la visite" onClick={() => setMode({ kind: "deleteVisit", visit: v })}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      {(v.dishes || v.comment || v.photo_path) && (
+                        <div className="mt-2 flex gap-3">
+                          {v.photo_path && (
+                            <a
+                              href={photo ?? undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 border-choco bg-sand"
+                              aria-label="Voir la photo en grand"
+                            >
+                              {photo && (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={photo} alt={`Photo du ${formatDateFR(v.visited_at)}`} className="h-full w-full object-cover" />
+                              )}
+                            </a>
+                          )}
+                          <div className="min-w-0 space-y-1 text-sm">
+                            {v.dishes && (
+                              <p>
+                                <span className="font-bold">Au menu :</span> {v.dishes}
+                              </p>
+                            )}
+                            {v.comment && <p className="whitespace-pre-line italic text-muted">« {v.comment} »</p>}
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -171,6 +220,7 @@ export default function RestaurantSheet({
 
       {restaurant && mode.kind === "addVisit" && (
         <VisitForm
+          userId={userId}
           submitLabel="Ajouter"
           onCancel={back}
           onSubmit={(v) => run(() => addVisit(userId, restaurant.id, v), "Visite ajoutée 🍴", "Erreur lors de l'ajout")}
@@ -179,6 +229,7 @@ export default function RestaurantSheet({
 
       {mode.kind === "editVisit" && (
         <VisitForm
+          userId={userId}
           initial={mode.visit}
           submitLabel="Enregistrer"
           onCancel={back}
@@ -195,7 +246,7 @@ export default function RestaurantSheet({
             </>
           }
           onCancel={back}
-          onConfirm={() => run(() => deleteVisit(userId, mode.visit.id), "Visite supprimée", "Erreur lors de la suppression")}
+          onConfirm={() => run(() => deleteVisit(userId, mode.visit), "Visite supprimée", "Erreur lors de la suppression")}
         />
       )}
 

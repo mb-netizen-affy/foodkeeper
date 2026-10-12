@@ -30,6 +30,22 @@
   --radius-card: 1.25rem;
 }
 
+/* ---------- Thème sombre ----------
+   Mêmes noms de couleurs, valeurs inversées : « choco » (texte, bordures,
+   ombres) devient clair, les fonds deviennent chocolat. Activé par
+   data-theme="dark" sur <html> (voir lib/theme.ts). */
+html[data-theme="dark"] {
+  --color-cream: #1c130d;        /* fond de l'app */
+  --color-paper: #2a1d15;        /* cartes */
+  --color-sand: #3b2b20;         /* surfaces secondaires */
+  --color-choco: #f1e4d1;        /* texte, bordures, ombres */
+  --color-muted: #c2ab96;        /* texte secondaire */
+  --color-paprika: #ec7a37;      /* accent */
+  --color-paprika-soft: #5a3320;
+  --color-danger: #ff8a7a;
+  color-scheme: dark;
+}
+
 html {
   background: var(--color-cream);
   color: var(--color-choco);
@@ -179,7 +195,8 @@ input[type="search"]::-webkit-search-cancel-button {
   .fk-chip:active {
     transform: scale(0.97);
   }
-  .fk-chip[aria-pressed="true"] {
+  .fk-chip[aria-pressed="true"],
+  .fk-chip[aria-checked="true"] {
     background: var(--color-choco);
     color: var(--color-cream);
   }
@@ -224,6 +241,104 @@ input[type="search"]::-webkit-search-cancel-button {
   .fk-scroll-x::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* ---------- Carte (Leaflet) aux couleurs de FoodKeeper ---------- */
+.fk-map.leaflet-container {
+  font-family: var(--font-sans);
+  background: var(--color-sand);
+}
+.fk-map .leaflet-tile-pane {
+  filter: sepia(0.25) saturate(0.9);
+}
+/* Carte en mode sombre : on inverse les tuiles et on les réchauffe */
+html[data-theme="dark"] .fk-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) sepia(0.35) saturate(0.8) brightness(0.85);
+}
+.fk-map .leaflet-control-zoom {
+  border: 2px solid var(--color-choco) !important;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-brut-sm);
+}
+.fk-map .leaflet-control-zoom a {
+  color: var(--color-choco);
+  background: var(--color-paper);
+  font-weight: 800;
+}
+.fk-map .leaflet-popup-content-wrapper {
+  background: var(--color-paper);
+  color: var(--color-choco);
+  border: 2px solid var(--color-choco);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-brut);
+}
+.fk-map .leaflet-popup-content {
+  margin: 12px 14px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.fk-map .leaflet-popup-content p {
+  margin: 0;
+}
+.fk-map .leaflet-popup-tip {
+  background: var(--color-paper);
+  border: 2px solid var(--color-choco);
+}
+.fk-map a.fk-btn-accent {
+  color: var(--color-deep);
+}
+.fk-map a.fk-btn-primary {
+  color: var(--color-cream);
+}
+.fk-map .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--color-paper) 85%, transparent);
+  color: var(--color-muted);
+}
+.fk-map .leaflet-control-attribution a {
+  color: var(--color-choco);
+}
+.fk-map .leaflet-popup-close-button {
+  color: var(--color-choco) !important;
+  font-size: 20px !important;
+}
+.fk-map .fk-me {
+  stroke: var(--color-choco);
+  fill: var(--color-paper);
+}
+.fk-pin-wrap {
+  background: none;
+  border: 0;
+}
+.fk-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-choco);
+  box-shadow: var(--shadow-brut-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 800;
+  transition: transform 120ms ease;
+}
+.fk-pin:hover {
+  transform: scale(1.12);
+}
+.fk-pin-resto {
+  background: var(--color-sand);
+  color: var(--color-choco);
+}
+.fk-pin-fav {
+  background: var(--color-paprika);
+  color: var(--color-deep);
+}
+.fk-pin-wish {
+  background: var(--color-paper);
+  color: var(--color-choco);
+  border-style: dashed;
 }
 
 @keyframes fk-pulse {

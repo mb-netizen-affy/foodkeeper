@@ -22,6 +22,10 @@ export type Visit = {
   price_eur: number | null;
   visited_at: string;
   covers: number | null;
+  // Souvenirs (facultatifs)
+  dishes?: string | null;
+  comment?: string | null;
+  photo_path?: string | null;
 };
 
 /** Restaurant enrichi des stats de ses visites (calculées côté client). */
@@ -29,6 +33,20 @@ export type RestaurantWithStats = Restaurant & {
   visitCount: number;
   totalSpent: number;
   lastVisitAt: string | null;
+};
+
+/** Resto repéré, pas encore visité (table `wishlist`, privée). */
+export type WishItem = {
+  id: string;
+  place_id: string;
+  name: string;
+  city: string | null;
+  country: string | null;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  note: string | null;
+  created_at: string;
 };
 
 export type Locale = "fr" | "en" | "es" | "it" | "de";

@@ -2,16 +2,16 @@
 
 // Ajouter un restaurant (via Google Places) ou une visite à un resto déjà connu.
 
-import { Loader, MapPin, Search, Star, X } from "lucide-react";
+import { Bookmark, Loader, MapPin, Search, Star, Utensils, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useVisitState, VisitFields } from "@/components/restaurant/Forms";
 import { PageHeader } from "@/components/ui/Blocks";
 import { Stepper, TagPicker } from "@/components/ui/Inputs";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/lib/auth";
-import { addVisit } from "@/lib/data";
+import { addToWishlist, addVisit, removeFromWishlistByPlace } from "@/lib/data";
 import { norm } from "@/lib/format";
 import { cityFromAddress, countryFromAddress, mapsUrl } from "@/lib/places";
 import { supabase } from "@/lib/supabaseClient";
@@ -31,7 +31,16 @@ type PlaceDetails = {
 };
 
 export default function SearchPage() {
+  return (
+    <Suspense>
+      <SearchContent />
+    </Suspense>
+  );
+}
+
+function SearchContent() {
   const { user } = useAuth();
+  const placeParam = useSearchParams().get("place");
   const router = useRouter();
   const toast = useToast();
 
@@ -40,6 +49,7 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<PlaceDetails | null>(null);
   const [existingId, setExistingId] = useState<string | null>(null);
+  const [inWishlist, setInWishlist] = useState(false);
 
   const autoCache = useRef(new Map<string, Prediction[]>());
   const detailsCache = useRef(new Map<string, PlaceDetails>());
@@ -82,39 +92,49 @@ export default function SearchPage() {
     return () => window.clearTimeout(t);
   }, [query, selected, toast]);
 
+  // Arrivée depuis « J'y suis allé » (liste À tester) : /search?place=<id>
+  const preloaded = useRef<string | null>(null);
+  useEffect(() => {
+    if (!placeParam || preloaded.current === placeParam) return;
+    preloaded.current = placeParam;
+    selectPlace(placeParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeParam]);
+
   const clear = () => {
     setQuery("");
     setPredictions([]);
     setSelected(null);
     setExistingId(null);
+    setInWishlist(false);
   };
 
-  const selectPlace = async (p: Prediction) => {
+  const selectPlace = async (placeId: string) => {
     const req = ++reqId.current;
     setPredictions([]);
     setLoading(true);
     try {
-      let details = detailsCache.current.get(p.placeId);
+      let details = detailsCache.current.get(placeId);
       if (!details) {
         const res = await fetch("/api/places/details", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ placeId: p.placeId }),
+          body: JSON.stringify({ placeId }),
         });
         if (!res.ok) throw new Error("details");
         details = (await res.json()) as PlaceDetails;
-        detailsCache.current.set(p.placeId, details);
+        detailsCache.current.set(placeId, details);
       }
       if (req !== reqId.current) return;
 
-      const { data: existing } = await supabase
-        .from("restaurants")
-        .select("id")
-        .eq("place_id", details.placeId)
-        .eq("user_id", user.id)
-        .maybeSingle();
+      // Déjà dans le carnet ? Déjà dans la liste « À tester » ?
+      const [{ data: existing }, { data: wish }] = await Promise.all([
+        supabase.from("restaurants").select("id").eq("place_id", details.placeId).eq("user_id", user.id).maybeSingle(),
+        supabase.from("wishlist").select("id").eq("place_id", details.placeId).eq("user_id", user.id).maybeSingle(),
+      ]);
 
       setExistingId(existing?.id ?? null);
+      setInWishlist(Boolean(wish?.id));
       setSelected(details);
       setQuery(details.name);
     } catch {
@@ -139,18 +159,19 @@ export default function SearchPage() {
             if (selected) {
               setSelected(null);
               setExistingId(null);
+              setInWishlist(false);
             }
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && predictions[0]) {
               e.preventDefault();
-              selectPlace(predictions[0]);
+              selectPlace(predictions[0].placeId);
             }
             if (e.key === "Escape") setPredictions([]);
           }}
           inputMode="search"
           autoComplete="off"
-          autoFocus
+          autoFocus={!selected}
           aria-label="Nom du restaurant"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -179,7 +200,7 @@ export default function SearchPage() {
                 <li key={p.placeId}>
                   <button
                     type="button"
-                    onClick={() => selectPlace(p)}
+                    onClick={() => selectPlace(p.placeId)}
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-sand/60"
                   >
                     <MapPin size={18} className="shrink-0 text-paprika" />
@@ -199,10 +220,11 @@ export default function SearchPage() {
             <AddForm
               place={selected}
               existingId={existingId}
+              inWishlist={inWishlist}
               userId={user.id}
-              onDone={(msg) => {
+              onDone={(msg, goTo = "/restaurants") => {
                 toast(msg);
-                router.push("/restaurants");
+                router.push(goTo);
               }}
               onError={(msg) => toast(msg, "error")}
             />
@@ -222,17 +244,22 @@ export default function SearchPage() {
 function AddForm({
   place,
   existingId,
+  inWishlist,
   userId,
   onDone,
   onError,
 }: {
   place: PlaceDetails;
   existingId: string | null;
+  inWishlist: boolean;
   userId: string;
-  onDone: (msg: string) => void;
+  onDone: (msg: string, goTo?: string) => void;
   onError: (msg: string) => void;
 }) {
   const visit = useVisitState();
+  // « J'y suis allé » (visite) ou « À tester plus tard » (liste) — seulement pour un resto pas encore dans le carnet
+  const [mode, setMode] = useState<"visit" | "wish">("visit");
+  const [note, setNote] = useState("");
   const [rating, setRating] = useState(14);
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -240,7 +267,14 @@ function AddForm({
   const submit = async () => {
     if (!visit.valid) return;
     setSaving(true);
+    let prepared: Awaited<ReturnType<typeof visit.prepare>> | null = null;
     try {
+      try {
+        prepared = await visit.prepare(userId);
+      } catch {
+        onError("La photo n'a pas pu être envoyée");
+        return;
+      }
       let restaurantId = existingId;
 
       if (!restaurantId) {
@@ -264,22 +298,51 @@ function AddForm({
           .select("id")
           .single();
         if (error || !data) {
+          await prepared.rollback();
           onError(error?.code === "23505" ? "Ce resto est déjà dans ton carnet" : "Erreur lors de l'ajout du restaurant");
           return;
         }
         restaurantId = data.id as string;
       }
 
-      const { error } = await addVisit(userId, restaurantId, visit.toInput());
+      const { error } = await addVisit(userId, restaurantId, prepared.input);
       if (error) {
+        await prepared.rollback();
         onError(existingId ? "Erreur lors de l'ajout de la visite" : "Resto ajouté, mais la visite n'a pas pu être enregistrée");
         return;
       }
+      // Testé : on le retire de la liste « À tester » s'il y était
+      if (inWishlist) await removeFromWishlistByPlace(userId, place.placeId);
       onDone(existingId ? "Visite ajoutée 🍴" : "Restaurant ajouté 🍴");
     } finally {
       setSaving(false);
     }
   };
+
+  const saveWish = async () => {
+    setSaving(true);
+    try {
+      const { error } = await addToWishlist(userId, {
+        place_id: place.placeId,
+        name: place.name,
+        city: cityFromAddress(place.address) || null,
+        country: countryFromAddress(place.address) || null,
+        address: place.address || null,
+        lat: place.lat,
+        lng: place.lng,
+        note: note.trim().slice(0, 200) || null,
+      });
+      if (error) {
+        onError(error.code === "23505" ? "Déjà dans ta liste À tester" : "Erreur lors de l'ajout à la liste");
+        return;
+      }
+      onDone("Ajouté à ta liste À tester 📌", "/restaurants?tab=wish");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const showChoice = !existingId && !inWishlist;
 
   return (
     <div className="space-y-5">
@@ -299,6 +362,7 @@ function AddForm({
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-extrabold leading-tight">{place.name}</h2>
             {existingId && <span className="fk-tag fk-tag-dark shrink-0">Déjà dans ton carnet</span>}
+            {!existingId && inWishlist && <span className="fk-tag fk-tag-accent shrink-0">Dans ta liste À tester</span>}
           </div>
           <p className="text-sm text-muted">{place.address}</p>
           {place.ratingGoogle != null && (
@@ -310,9 +374,56 @@ function AddForm({
         </div>
       </section>
 
+      {showChoice && (
+        <div className="grid grid-cols-2 gap-1 rounded-2xl border-2 border-choco bg-sand p-1" role="tablist" aria-label="Que veux-tu faire ?">
+          {(
+            [
+              { value: "visit", label: "J'y suis allé", icon: Utensils },
+              { value: "wish", label: "À tester plus tard", icon: Bookmark },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              role="tab"
+              aria-selected={mode === o.value}
+              onClick={() => setMode(o.value)}
+              className="relative flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold"
+            >
+              {mode === o.value && (
+                <motion.span layoutId="add-mode" className="absolute inset-0 rounded-xl border-2 border-choco bg-paper" transition={{ type: "spring", stiffness: 500, damping: 38 }} />
+              )}
+              <o.icon size={16} className="relative" />
+              <span className="relative">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showChoice && mode === "wish" ? (
+        <section className="fk-card space-y-4 p-4">
+          <h3 className="text-lg font-extrabold">À tester plus tard</h3>
+          <div>
+            <label className="fk-label" htmlFor="wish-note">
+              Un petit mot <span className="font-normal text-muted">(facultatif)</span>
+            </label>
+            <input
+              id="wish-note"
+              className="fk-input"
+              placeholder="ex. conseillé par Julie, leur tarte tatin"
+              maxLength={200}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+          <button type="button" className="fk-btn fk-btn-accent w-full" disabled={saving} onClick={saveWish}>
+            <Bookmark size={18} strokeWidth={2.5} /> {saving ? "Ajout…" : "Ajouter à ma liste"}
+          </button>
+        </section>
+      ) : (
       <section className="fk-card space-y-5 p-4">
         <h3 className="text-lg font-extrabold">{existingId ? "Nouvelle visite" : "Ta première visite"}</h3>
-        <VisitFields {...visit.fields} />
+        <VisitFields visit={visit} />
 
         {!existingId && (
           <>
@@ -332,6 +443,7 @@ function AddForm({
         </button>
         {!visit.valid && <p className="-mt-2 text-center text-xs text-muted">Indique le montant de l&apos;addition pour continuer.</p>}
       </section>
+      )}
     </div>
   );
 }

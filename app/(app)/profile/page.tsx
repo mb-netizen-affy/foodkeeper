@@ -10,6 +10,7 @@ import Sheet from "@/components/ui/Sheet";
 import { useToast } from "@/components/ui/Toast";
 import { signOut, useAuth } from "@/lib/auth";
 import { fullName, initials } from "@/lib/format";
+import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { supabase } from "@/lib/supabaseClient";
 import type { Locale } from "@/lib/types";
 
@@ -106,6 +107,9 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      <SectionTitle>Apparence</SectionTitle>
+      <ThemePicker />
+
       <SectionTitle>Sécurité</SectionTitle>
       <section className="fk-card mb-5 divide-y-2 divide-choco/15 overflow-hidden">
         <MenuRow icon={Mail} label="Changer d'e-mail" onClick={() => setPanel("email")} disabled={Boolean(isOAuth)} />
@@ -127,6 +131,34 @@ export default function ProfilePage() {
         {panel === "password" && <PasswordForm onDone={() => setPanel(null)} />}
       </Sheet>
     </>
+  );
+}
+
+function ThemePicker() {
+  const { choice, setChoice } = useTheme();
+  const options: { value: ThemeChoice; label: string }[] = [
+    { value: "light", label: "Clair" },
+    { value: "dark", label: "Sombre" },
+    { value: "system", label: "Auto" },
+  ];
+  return (
+    <section className="fk-card mb-5 p-4">
+      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Thème">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={choice === o.value}
+            className="fk-chip justify-center !py-2.5"
+            onClick={() => setChoice(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted">« Auto » suit le réglage de ton téléphone. Mémorisé sur cet appareil.</p>
+    </section>
   );
 }
 

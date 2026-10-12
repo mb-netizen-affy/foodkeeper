@@ -1,27 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { Camera, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Stepper, TagPicker } from "@/components/ui/Inputs";
-import { dateInputToISO, toDateInput, todayInput } from "@/lib/format";
+import { useToast } from "@/components/ui/Toast";
 import type { VisitInput } from "@/lib/data";
+import { dateInputToISO, toDateInput, todayInput } from "@/lib/format";
+import { deletePhotos, signedPhotoUrls, uploadVisitPhoto } from "@/lib/photos";
 import type { Visit } from "@/lib/types";
 
-/** Champs d'une visite : date, montant, couverts. Utilisé pour ajouter ET modifier. */
-export function VisitFields({
-  date,
-  setDate,
-  price,
-  setPrice,
-  covers,
-  setCovers,
-}: {
-  date: string;
-  setDate: (v: string) => void;
-  price: string;
-  setPrice: (v: string) => void;
-  covers: number;
-  setCovers: (v: number) => void;
-}) {
+/** Champs d'une visite : date, montant, couverts + souvenirs. Utilisé pour ajouter ET modifier. */
+export function VisitFields({ visit }: { visit: VisitState }) {
+  const { date, setDate, price, setPrice, covers, setCovers, dishes, setDishes, comment, setComment } = visit.fields;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
@@ -48,40 +38,180 @@ export function VisitFields({
         <span className="fk-label">Couverts</span>
         <Stepper label="Couverts" value={covers} onChange={setCovers} min={1} max={30} />
       </div>
+
+      <div className="space-y-3 rounded-2xl border-2 border-dashed border-choco/40 p-3">
+        <p className="text-sm font-extrabold">
+          Souvenirs <span className="font-normal text-muted">(facultatif)</span>
+        </p>
+        <div>
+          <label className="fk-label" htmlFor="visit-dishes">Ce que tu as mangé</label>
+          <input
+            id="visit-dishes"
+            className="fk-input"
+            placeholder="ex. tartare de bœuf, mousse au chocolat"
+            maxLength={300}
+            value={dishes}
+            onChange={(e) => setDishes(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="fk-label" htmlFor="visit-comment">Commentaire</label>
+          <textarea
+            id="visit-comment"
+            className="fk-input min-h-20 resize-y"
+            placeholder="ex. service au top, terrasse à privilégier l'été"
+            maxLength={1000}
+            rows={2}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+        </div>
+        <PhotoPicker visit={visit} />
+      </div>
     </div>
   );
 }
+
+function PhotoPicker({ visit }: { visit: VisitState }) {
+  const { preview, setPhotoFile, removePhoto } = visit.photo;
+  const input = (
+    <input
+      id="visit-photo"
+      type="file"
+      accept="image/*"
+      className="sr-only"
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        if (f) setPhotoFile(f);
+        e.target.value = "";
+      }}
+    />
+  );
+
+  if (!preview) {
+    return (
+      <label
+        htmlFor="visit-photo"
+        className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-choco bg-paper px-4 py-3 font-bold"
+      >
+        <Camera size={18} /> Ajouter une photo
+        {input}
+      </label>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={preview} alt="Photo de la visite" className="h-44 w-full rounded-2xl border-2 border-choco object-cover" />
+      <div className="grid grid-cols-2 gap-2">
+        <label htmlFor="visit-photo" className="fk-btn fk-btn-ghost !min-h-10 !py-2 text-sm">
+          <Camera size={16} /> Changer
+          {input}
+        </label>
+        <button type="button" className="fk-btn fk-btn-ghost !min-h-10 !py-2 text-sm" onClick={removePhoto}>
+          <Trash2 size={16} /> Retirer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export type VisitState = ReturnType<typeof useVisitState>;
 
 export function useVisitState(initial?: Visit | null) {
   const [date, setDate] = useState(initial ? toDateInput(initial.visited_at) : todayInput());
   const [price, setPrice] = useState(initial?.price_eur != null ? String(initial.price_eur) : "");
   const [covers, setCovers] = useState(initial?.covers ?? 2);
+  const [dishes, setDishes] = useState(initial?.dishes ?? "");
+  const [comment, setComment] = useState(initial?.comment ?? "");
+
+  // Photo : nouvelle photo choisie, ou suppression de l'ancienne
+  const [photoFile, setPhotoFileState] = useState<File | null>(null);
+  const [photoRemoved, setPhotoRemoved] = useState(false);
+  const [existingUrl, setExistingUrl] = useState<string | null>(null);
+  const existingPath = initial?.photo_path ?? null;
+
+  useEffect(() => {
+    if (!existingPath) return;
+    let alive = true;
+    signedPhotoUrls([existingPath]).then((urls) => alive && setExistingUrl(urls[existingPath] ?? null));
+    return () => {
+      alive = false;
+    };
+  }, [existingPath]);
+
+  const fileUrl = useMemo(() => (photoFile ? URL.createObjectURL(photoFile) : null), [photoFile]);
+  useEffect(() => () => {
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+  }, [fileUrl]);
+
+  const preview = fileUrl ?? (!photoRemoved ? existingUrl : null);
+
+  const setPhotoFile = (f: File) => {
+    setPhotoFileState(f);
+    setPhotoRemoved(false);
+  };
+  const removePhoto = () => {
+    setPhotoFileState(null);
+    setPhotoRemoved(true);
+  };
 
   const parsed = Number(price.replace(",", "."));
   const valid = price.trim() !== "" && Number.isFinite(parsed) && parsed >= 0 && covers >= 1 && date !== "";
 
-  const toInput = (): VisitInput => ({
-    price_eur: parsed,
-    covers,
-    visited_at: dateInputToISO(date),
-  });
+  /**
+   * Prépare l'enregistrement : envoie la nouvelle photo s'il y en a une.
+   * `commit` supprime l'ancienne photo une fois la visite enregistrée,
+   * `rollback` supprime la nouvelle si l'enregistrement échoue.
+   */
+  const prepare = async (userId: string) => {
+    const newPath = photoFile ? await uploadVisitPhoto(userId, photoFile) : null;
+    const photo_path = newPath ?? (photoRemoved ? null : existingPath);
+    const input: VisitInput = {
+      price_eur: parsed,
+      covers,
+      visited_at: dateInputToISO(date),
+      dishes: dishes.trim() || null,
+      comment: comment.trim() || null,
+      photo_path,
+    };
+    return {
+      input,
+      commit: async () => {
+        if (existingPath && existingPath !== photo_path) await deletePhotos([existingPath]);
+      },
+      rollback: async () => {
+        if (newPath) await deletePhotos([newPath]);
+      },
+    };
+  };
 
-  return { fields: { date, setDate, price, setPrice, covers, setCovers }, valid, toInput };
+  return {
+    fields: { date, setDate, price, setPrice, covers, setCovers, dishes, setDishes, comment, setComment },
+    photo: { preview, setPhotoFile, removePhoto },
+    valid,
+    prepare,
+  };
 }
 
 /** Formulaire visite complet avec bouton d'envoi. */
 export function VisitForm({
+  userId,
   initial,
   submitLabel,
   onSubmit,
   onCancel,
 }: {
+  userId: string;
   initial?: Visit | null;
   submitLabel: string;
-  onSubmit: (v: VisitInput) => Promise<void>;
+  /** Renvoie true si l'enregistrement a réussi. */
+  onSubmit: (v: VisitInput) => Promise<boolean>;
   onCancel: () => void;
 }) {
-  const { fields, valid, toInput } = useVisitState(initial);
+  const visit = useVisitState(initial);
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
 
   return (
@@ -89,21 +219,26 @@ export function VisitForm({
       className="space-y-5"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!valid) return;
+        if (!visit.valid) return;
         setSaving(true);
         try {
-          await onSubmit(toInput());
+          const prepared = await visit.prepare(userId);
+          const ok = await onSubmit(prepared.input);
+          await (ok ? prepared.commit() : prepared.rollback());
+        } catch (err) {
+          console.error(err);
+          toast("La photo n'a pas pu être envoyée", "error");
         } finally {
           setSaving(false);
         }
       }}
     >
-      <VisitFields {...fields} />
+      <VisitFields visit={visit} />
       <div className="grid grid-cols-2 gap-3">
         <button type="button" className="fk-btn fk-btn-ghost" onClick={onCancel}>
           Annuler
         </button>
-        <button type="submit" className="fk-btn fk-btn-primary" disabled={!valid || saving}>
+        <button type="submit" className="fk-btn fk-btn-primary" disabled={!visit.valid || saving}>
           {saving ? "…" : submitLabel}
         </button>
       </div>
@@ -120,7 +255,7 @@ export function RatingTagsForm({
 }: {
   initialRating: number;
   initialTags: string[];
-  onSubmit: (rating: number, tags: string[]) => Promise<void>;
+  onSubmit: (rating: number, tags: string[]) => Promise<unknown>;
   onCancel: () => void;
 }) {
   const [rating, setRating] = useState(initialRating);
