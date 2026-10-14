@@ -12,15 +12,6 @@ import { signOut, useAuth } from "@/lib/auth";
 import { fullName, initials } from "@/lib/format";
 import { useTheme, type ThemeChoice } from "@/lib/theme";
 import { supabase } from "@/lib/supabaseClient";
-import type { Locale } from "@/lib/types";
-
-const LOCALES: { value: Locale; label: string }[] = [
-  { value: "fr", label: "🇫🇷 Français" },
-  { value: "en", label: "🇬🇧 English" },
-  { value: "es", label: "🇪🇸 Español" },
-  { value: "it", label: "🇮🇹 Italiano" },
-  { value: "de", label: "🇩🇪 Deutsch" },
-];
 
 type Panel = null | "identity" | "email" | "password";
 
@@ -67,7 +58,6 @@ export default function ProfilePage() {
   };
 
   const name = fullName(profile.name, profile.last_name);
-  const localeLabel = LOCALES.find((l) => l.value === profile.locale)?.label ?? "🇫🇷 Français";
   const isOAuth = user.app_metadata?.provider && user.app_metadata.provider !== "email";
 
   return (
@@ -80,7 +70,6 @@ export default function ProfilePage() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-xl font-extrabold">{name || "Sans nom"}</p>
             <p className="truncate text-sm text-muted">{user.email}</p>
-            <p className="text-sm text-muted">{localeLabel}</p>
           </div>
           <button type="button" className="fk-icon-btn" aria-label="Modifier mon profil" onClick={() => setPanel("identity")}>
             <Pencil size={16} />
@@ -190,7 +179,6 @@ function IdentityForm({ onDone }: { onDone: () => void }) {
   const toast = useToast();
   const [first, setFirst] = useState(profile.name ?? "");
   const [last, setLast] = useState(profile.last_name ?? "");
-  const [locale, setLocale] = useState<Locale>(profile.locale);
   const [saving, setSaving] = useState(false);
 
   return (
@@ -199,11 +187,11 @@ function IdentityForm({ onDone }: { onDone: () => void }) {
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
-        const next = { ...profile, name: first.trim().slice(0, 40), last_name: last.trim().slice(0, 40), locale };
-        const { error } = await supabase.from("profiles").upsert(
-          { id: user.id, name: next.name, last_name: next.last_name, locale, is_public: profile.is_public, updated_at: new Date().toISOString() },
-          { onConflict: "id" }
-        );
+        const next = { ...profile, name: first.trim().slice(0, 40), last_name: last.trim().slice(0, 40) };
+        const { error } = await supabase
+          .from("profiles")
+          .update({ name: next.name, last_name: next.last_name, updated_at: new Date().toISOString() })
+          .eq("id", user.id);
         setSaving(false);
         if (error) {
           toast("Erreur lors de l'enregistrement", "error");
@@ -223,16 +211,6 @@ function IdentityForm({ onDone }: { onDone: () => void }) {
           <label className="fk-label" htmlFor="last">Nom</label>
           <input id="last" className="fk-input" value={last} onChange={(e) => setLast(e.target.value)} autoComplete="family-name" />
         </div>
-      </div>
-      <div>
-        <label className="fk-label" htmlFor="locale">Langue préférée</label>
-        <select id="locale" className="fk-input" value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
-          {LOCALES.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
-            </option>
-          ))}
-        </select>
       </div>
       <button type="submit" className="fk-btn fk-btn-primary w-full" disabled={saving}>
         {saving ? "…" : "Enregistrer"}

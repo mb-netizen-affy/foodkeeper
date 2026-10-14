@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Crown, Gem, PiggyBank, Receipt, Utensils } from "lucide-react";
+import { CalendarDays, Crown, Gem, PiggyBank, Receipt } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { KeyFigures, ProfileHero, TagsAndCountries, TopThree } from "@/components/stats/StatsBlocks";
@@ -109,21 +109,11 @@ export default function StatsPage() {
                 main={stats.dearestPerCover?.restaurantName ?? "—"}
                 sub={stats.dearestPerCover ? `${formatEUR(stats.dearestPerCover.value)} / couvert` : "—"}
               />
-              <InsightCard
-                icon={Utensils}
-                title="Couverts servis"
-                main={plural(stats.totalCovers, "couvert", "couverts")}
-                sub={`sur ${plural(stats.visitCount, "visite", "visites")}`}
-              />
             </div>
           </section>
 
           <TopThree stats={stats} />
           <TagsAndCountries stats={stats} />
-
-          <p className="text-xs text-muted">
-            Le filtre par année se base sur la date des visites. € / couvert = total dépensé ÷ nombre de couverts.
-          </p>
         </>
       )}
     </>

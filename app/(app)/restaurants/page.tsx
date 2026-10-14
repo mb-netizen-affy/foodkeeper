@@ -98,16 +98,9 @@ function RestaurantsContent() {
             : `${plural(restaurants.length, "adresse", "adresses")} · ${plural(visits.length, "visite", "visites")}`
         }
         action={
-          <div className="flex gap-2">
-            <Link href="/map" className="fk-btn fk-btn-ghost !min-h-11 !px-4" aria-label="Voir la carte">
-              <MapIcon size={20} strokeWidth={2.5} />
-              <span className="hidden sm:inline">Carte</span>
-            </Link>
-            <Link href="/search" className="fk-btn fk-btn-accent !min-h-11 !px-4" aria-label="Ajouter un restaurant">
-              <Plus size={20} strokeWidth={2.75} />
-              <span className="hidden sm:inline">Ajouter</span>
-            </Link>
-          </div>
+          <Link href="/map" className="fk-btn fk-btn-ghost !min-h-11 !px-4">
+            <MapIcon size={20} strokeWidth={2.5} /> Carte
+          </Link>
         }
       />
 

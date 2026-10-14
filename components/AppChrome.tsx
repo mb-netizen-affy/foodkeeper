@@ -2,7 +2,7 @@
 
 // En-tête, navigation flottante et bulle « Mon compte ».
 
-import { ChartColumn, LogOut, Moon, Search, Settings, Users, Utensils } from "lucide-react";
+import { ChartColumn, LogOut, Search, Settings, Users, Utensils } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
@@ -10,8 +10,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { signOut, useAuth } from "@/lib/auth";
 import { initials } from "@/lib/format";
-import { useTheme } from "@/lib/theme";
-import { Switch } from "./ui/Inputs";
 
 export function Logo({ size = 40 }: { size?: number }) {
   return (
@@ -59,7 +57,6 @@ export function AppHeader() {
 
 function AccountBubble() {
   const { user, profile } = useAuth();
-  const { isDark, setChoice } = useTheme();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -103,11 +100,6 @@ function AccountBubble() {
             >
               <Settings size={18} /> Mon compte
             </Link>
-            <div className="flex items-center gap-3 border-t-2 border-choco px-4 py-2.5 font-semibold">
-              <Moon size={18} />
-              <span className="flex-1">Thème sombre</span>
-              <Switch checked={isDark} onChange={() => setChoice(isDark ? "light" : "dark")} label="Thème sombre" />
-            </div>
             <button
               type="button"
               onClick={signOut}

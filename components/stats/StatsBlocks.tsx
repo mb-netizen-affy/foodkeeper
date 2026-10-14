@@ -65,14 +65,9 @@ export function KeyFigures({ stats, detailed }: { stats: Stats; detailed?: boole
       <StatCard label="Restaurants" value={String(stats.restaurantCount)} />
       <StatCard label="Visites" value={String(stats.visitCount)} />
       {detailed && (
-        <>
+        <div className="col-span-2">
           <StatCard label="Note moyenne" value={stats.avgRating ? `${formatNum(stats.avgRating)}/20` : "—"} />
-          <StatCard
-            label="Écart de notes"
-            value={stats.bestRating != null ? `${stats.worstRating} → ${stats.bestRating}` : "—"}
-            sub="pire → meilleure"
-          />
-        </>
+        </div>
       )}
     </section>
   );
