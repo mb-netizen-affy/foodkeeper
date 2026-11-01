@@ -83,7 +83,7 @@ export default function CommunityPage() {
     <>
       <PageHeader title="Communauté" subtitle="Découvre les carnets publics des autres gourmands." />
 
-      <div className="relative mb-5">
+      <div className="relative mb-5 md:max-w-xl">
         <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
         <input
           type="search"
@@ -116,7 +116,7 @@ export default function CommunityPage() {
       ) : !searching && results.length === 0 ? (
         <p className="text-center text-sm text-muted">Aucun carnet public pour « {q} ».</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {results.map((p, i) => {
             const name = fullName(p.name, p.last_name) || "Gourmand anonyme";
             return (

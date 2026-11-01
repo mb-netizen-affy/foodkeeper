@@ -61,7 +61,7 @@ export default function ProfilePage() {
   const isOAuth = user.app_metadata?.provider && user.app_metadata.provider !== "email";
 
   return (
-    <>
+    <div className="mx-auto max-w-2xl">
       <PageHeader title="Mon compte" />
 
       <section className="fk-card mb-5 p-5">
@@ -119,7 +119,7 @@ export default function ProfilePage() {
       <Sheet open={panel === "password"} onClose={() => setPanel(null)} title="Nouveau mot de passe">
         {panel === "password" && <PasswordForm onDone={() => setPanel(null)} />}
       </Sheet>
-    </>
+    </div>
   );
 }
 

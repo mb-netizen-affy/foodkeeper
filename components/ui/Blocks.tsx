@@ -6,7 +6,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   return (
     <header className="mb-5 flex items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-3xl font-extrabold leading-none tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-extrabold leading-none sm:text-3xl tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
@@ -37,7 +37,7 @@ export function StatCard({
   return (
     <div className={`fk-card p-4 ${accent ? "!bg-paprika text-deep" : ""}`}>
       <p className={`text-xs font-bold uppercase tracking-wider ${accent ? "text-deep/80" : "text-muted"}`}>{label}</p>
-      <p className="mt-1 truncate text-2xl font-extrabold leading-tight tabular-nums">{value}</p>
+      <p className="mt-1 truncate text-xl sm:text-2xl font-extrabold leading-tight tabular-nums">{value}</p>
       {sub && <p className={`mt-1 text-xs ${accent ? "text-deep/80" : "text-muted"}`}>{sub}</p>}
     </div>
   );

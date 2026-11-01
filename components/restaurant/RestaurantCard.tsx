@@ -37,7 +37,7 @@ export default function RestaurantCard({ restaurant, onOpen }: { restaurant: Res
       >
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-lg font-extrabold leading-tight">{restaurant.name}</p>
+            <p className="truncate text-base font-extrabold leading-tight sm:text-lg">{restaurant.name}</p>
             {place && (
               <p className="mt-0.5 flex items-center gap-1 truncate text-sm text-muted">
                 <MapPin size={14} className="shrink-0" /> {place}

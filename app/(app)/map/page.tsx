@@ -50,7 +50,7 @@ export default function MapPage() {
         title="La carte"
         subtitle="Tous tes restos, et ceux qui t'attendent."
         action={
-          <Link href="/restaurants" className="fk-btn fk-btn-ghost !min-h-11 !px-4" aria-label="Retour à la liste">
+          <Link href="/restaurants" className="fk-btn fk-btn-ghost !min-h-11 !px-4 lg:hidden" aria-label="Retour à la liste">
             <ArrowLeft size={18} strokeWidth={2.5} />
             <span className="hidden sm:inline">Liste</span>
           </Link>
@@ -65,7 +65,7 @@ export default function MapPage() {
         ))}
       </div>
 
-      <div className="fk-card relative h-[calc(100dvh-22rem)] min-h-[340px] overflow-hidden !p-0">
+      <div className="fk-card relative h-[calc(100dvh-22rem)] min-h-[340px] lg:h-[calc(100dvh-17rem)] overflow-hidden !p-0">
         <RestoMap restaurants={shownRestos} wishes={shownWishes} onOpenRestaurant={setOpenId} />
       </div>
 

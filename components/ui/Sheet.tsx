@@ -39,7 +39,7 @@ export default function Sheet({ open, onClose, title, children }: Props) {
             onClick={onClose}
           />
           <motion.div
-            className="relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[1.75rem] border-2 border-b-0 border-choco bg-paper p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:max-w-md sm:rounded-[1.75rem] sm:border-b-2 sm:shadow-brut-lg"
+            className="relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[1.75rem] border-2 border-b-0 border-choco bg-paper p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:max-w-lg sm:rounded-[1.75rem] sm:border-b-2 sm:shadow-brut-lg"
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}

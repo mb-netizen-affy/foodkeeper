@@ -98,14 +98,14 @@ function RestaurantsContent() {
             : `${plural(restaurants.length, "adresse", "adresses")} · ${plural(visits.length, "visite", "visites")}`
         }
         action={
-          <Link href="/map" className="fk-btn fk-btn-ghost !min-h-11 !px-4">
+          <Link href="/map" className="fk-btn fk-btn-ghost !min-h-11 !px-4 lg:hidden">
             <MapIcon size={20} strokeWidth={2.5} /> Carte
           </Link>
         }
       />
 
       {/* Onglets Mon carnet / À tester */}
-      <div className="mb-4 grid grid-cols-2 gap-1 rounded-2xl border-2 border-choco bg-sand p-1" role="tablist" aria-label="Affichage">
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-2xl border-2 border-choco bg-sand p-1 md:max-w-md" role="tablist" aria-label="Affichage">
         {(
           [
             { value: "carnet", label: "Mon carnet", count: restaurants.length },
@@ -132,8 +132,8 @@ function RestaurantsContent() {
       </div>
 
       {hasContent && (
-        <div className="mb-4 space-y-3">
-          <div className="relative">
+        <div className="mb-4 space-y-3 md:flex md:items-center md:gap-4 md:space-y-0">
+          <div className="relative md:w-80 md:shrink-0">
             <Search size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
             <input
               type="search"
@@ -165,7 +165,7 @@ function RestaurantsContent() {
 
       {tab === "carnet" ? (
         loading ? (
-          <ul className="space-y-4">
+          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 4 }).map((_, i) => (
               <RestaurantCardSkeleton key={i} />
             ))}
@@ -179,7 +179,7 @@ function RestaurantsContent() {
         ) : visible.length === 0 ? (
           <NoResult search={search} onClear={() => setSearch("")} />
         ) : (
-          <ul className="space-y-4">
+          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <AnimatePresence initial={false}>
               {visible.map((r) => (
                 <RestaurantCard key={r.id} restaurant={r} onOpen={() => setOpenId(r.id)} />
@@ -188,7 +188,7 @@ function RestaurantsContent() {
           </ul>
         )
       ) : wishlist.loading ? (
-        <ul className="space-y-4">
+        <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 2 }).map((_, i) => (
             <RestaurantCardSkeleton key={i} />
           ))}
@@ -206,7 +206,7 @@ function RestaurantsContent() {
       ) : visibleWishes.length === 0 ? (
         <NoResult search={search} onClear={() => setSearch("")} />
       ) : (
-        <ul className="space-y-4">
+        <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <AnimatePresence initial={false}>
             {visibleWishes.map((w) => (
               <WishCard key={w.id} item={w} onDelete={() => removeWish(w.id, w.name)} />

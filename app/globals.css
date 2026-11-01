@@ -46,6 +46,13 @@ html[data-theme="dark"] {
   color-scheme: dark;
 }
 
+/* Sur téléphone, tout est un peu plus compact */
+@media (max-width: 639px) {
+  html {
+    font-size: 15px;
+  }
+}
+
 html {
   background: var(--color-cream);
   color: var(--color-choco);

@@ -145,13 +145,13 @@ function SearchContent() {
   };
 
   return (
-    <>
+    <div className="mx-auto max-w-5xl">
       <PageHeader title="Ajouter" subtitle="Cherche un restaurant pour l'ajouter ou noter une nouvelle visite." />
 
-      <div className="relative mb-5">
+      <div className="relative mb-5 lg:max-w-2xl">
         <Search size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
         <input
-          className="fk-input !min-h-14 !pl-12 !pr-12 text-lg"
+          className="fk-input !min-h-12 !pl-12 !pr-12 text-base sm:!min-h-14 sm:text-lg"
           placeholder="Nom du restaurant…"
           value={query}
           onChange={(e) => {
@@ -237,7 +237,7 @@ function SearchContent() {
           Astuce : tape le nom et la ville, par exemple <b className="text-choco">« Chez Janou Paris »</b>.
         </p>
       )}
-    </>
+    </div>
   );
 }
 
@@ -345,13 +345,13 @@ function AddForm({
   const showChoice = !existingId && !inWishlist;
 
   return (
-    <div className="space-y-5">
-      <section className="fk-card overflow-hidden">
+    <div className="space-y-5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
+      <section className="fk-card overflow-hidden lg:sticky lg:top-10">
         {place.lat != null && place.lng != null && (
           <a href={mapsUrl(place.lat, place.lng)} target="_blank" rel="noopener noreferrer" className="block border-b-2 border-choco" title="Ouvrir dans Google Maps">
             <iframe
               title={`Carte : ${place.name}`}
-              className="pointer-events-none h-36 w-full grayscale-[30%] sepia-[25%]"
+              className="pointer-events-none h-36 w-full grayscale-[30%] sepia-[25%] lg:h-56"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               src={`https://www.google.com/maps?q=${place.lat},${place.lng}&z=15&output=embed`}
@@ -374,6 +374,7 @@ function AddForm({
         </div>
       </section>
 
+      <div className="space-y-5">
       {showChoice && (
         <div className="grid grid-cols-2 gap-1 rounded-2xl border-2 border-choco bg-sand p-1" role="tablist" aria-label="Que veux-tu faire ?">
           {(
@@ -444,6 +445,7 @@ function AddForm({
         {!visit.valid && <p className="-mt-2 text-center text-xs text-muted">Indique le montant de l&apos;addition pour continuer.</p>}
       </section>
       )}
+      </div>
     </div>
   );
 }

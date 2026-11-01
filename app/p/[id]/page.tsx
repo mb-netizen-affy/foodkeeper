@@ -57,7 +57,7 @@ export default function PublicProfilePage() {
   return (
     <div className="min-h-dvh">
       <header className="border-b-2 border-choco bg-cream">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-3 md:max-w-4xl lg:max-w-5xl">
           <Link href="/community" className="fk-btn fk-btn-ghost !min-h-10 !px-3 !py-1.5 text-sm">
             <ArrowLeft size={16} strokeWidth={2.5} /> Communauté
           </Link>
@@ -70,7 +70,7 @@ export default function PublicProfilePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 py-6">
+      <main className="mx-auto max-w-2xl px-4 py-6 md:max-w-4xl lg:max-w-5xl lg:py-10">
         {state === "loading" && (
           <div className="space-y-4">
             <div className="fk-skeleton h-44 rounded-[1.25rem]" />
@@ -102,8 +102,10 @@ export default function PublicProfilePage() {
                   <YearChips years={years} value={year} onChange={setYear} />
                 </div>
                 <KeyFigures stats={stats} />
-                <TopThree stats={stats} />
-                <TagsAndCountries stats={stats} />
+                <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+                  <TopThree stats={stats} />
+                  <TagsAndCountries stats={stats} />
+                </div>
               </>
             )}
           </>

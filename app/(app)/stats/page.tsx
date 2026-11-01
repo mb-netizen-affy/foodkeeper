@@ -78,7 +78,7 @@ export default function StatsPage() {
 
           <section className="mb-5">
             <SectionTitle>Les faits marquants</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <InsightCard
                 icon={Crown}
                 title="Ta cantine"
@@ -112,8 +112,10 @@ export default function StatsPage() {
             </div>
           </section>
 
-          <TopThree stats={stats} />
-          <TagsAndCountries stats={stats} />
+          <div className="lg:grid lg:grid-cols-2 lg:gap-6">
+            <TopThree stats={stats} />
+            <TagsAndCountries stats={stats} />
+          </div>
         </>
       )}
     </>

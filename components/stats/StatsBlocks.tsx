@@ -27,7 +27,7 @@ export function ProfileHero({
       <div className="flex items-start gap-4 p-5">
         <Avatar text={initialsText} size="lg" />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-2xl font-extrabold leading-tight tracking-tight">{name}</h1>
+          <h1 className="truncate text-xl font-extrabold sm:text-2xl leading-tight tracking-tight">{name}</h1>
           <p className="text-sm text-muted">{subtitle}</p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {stats.topCity && (
@@ -59,13 +59,13 @@ export function ProfileHero({
 
 export function KeyFigures({ stats, detailed }: { stats: Stats; detailed?: boolean }) {
   return (
-    <section className="mb-5 grid grid-cols-2 gap-3">
+    <section className={`mb-5 grid grid-cols-2 gap-3 ${detailed ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
       <StatCard label="Total dépensé" value={formatEUR(stats.totalSpent)} sub={stats.avgPerVisit != null ? `~ ${formatEUR(stats.avgPerVisit)} / visite` : undefined} accent />
       <StatCard label="€ / couvert" value={formatEUR(stats.avgPerCover)} sub={plural(stats.totalCovers, "couvert", "couverts")} />
       <StatCard label="Restaurants" value={String(stats.restaurantCount)} />
       <StatCard label="Visites" value={String(stats.visitCount)} />
       {detailed && (
-        <div className="col-span-2">
+        <div className="col-span-2 lg:col-span-1">
           <StatCard label="Note moyenne" value={stats.avgRating ? `${formatNum(stats.avgRating)}/20` : "—"} />
         </div>
       )}

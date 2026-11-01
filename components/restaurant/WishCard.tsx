@@ -17,7 +17,7 @@ export default function WishCard({ item, onDelete }: { item: WishItem; onDelete:
       <article className="fk-card border-dashed p-4">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-lg font-extrabold leading-tight">{item.name}</p>
+            <p className="truncate text-base font-extrabold leading-tight sm:text-lg">{item.name}</p>
             {place && (
               <p className="mt-0.5 flex items-center gap-1 truncate text-sm text-muted">
                 <MapPin size={14} className="shrink-0" /> {place}
